@@ -55,12 +55,29 @@
 | # | Collector | Source | Status |
 |---|---|---|---|
 | 1 | `feed` | **Upstox WebSocket** | ✅ **ho gaya** |
-| 2 | `crypto` | Binance — 24×7 | ⬜ |
-| 3 | `fred` | FRED API — crude, DXY, US10Y, India EPU | ⬜ |
+| 2 | `crypto` | Binance — 24×7 | ✅ **ho gaya** |
+| 3 | `fred` | FRED API — crude, DXY, US10Y, India EPU | ✅ **ho gaya** |
 | 4 | `global_markets` | US futures, Asian markets, NSE ETF proxies | ⬜ |
 | 5 | `news` | NSE/BSE filings, RBI, SEBI, PIB + RSS | ⬜ |
 | 6 | `altdata` | Vidyut Pravah, VAHAN | ⬜ |
 | 7 | `uncertainty` | GPR, EPU (monthly) | ⬜ |
+
+### `crypto` + `fred` — ✅ kya bana
+
+| Cheez | Kahan |
+|---|---|
+| Collector base: retry, backoff, rate limit, run tracking | `collectors/base.py` |
+| BTC/ETH 24×7, **asymmetric** risk signal (sirf downside) | `collectors/crypto.py` |
+| FRED — 8 series ek key se (crude, DXY, US10Y, VIX, India EPU) | `collectors/fred.py` |
+| Missing observations (`.`) drop hote hain, zero nahi bante | `collectors/fred.py` |
+| **`fetched_at`** har row par — point-in-time backtest ke liye | `store/macro.py` |
+| `as_of()` — us din jo pata tha wahi dikhta hai | `store/macro.py` |
+| Crude × rupee composite stress index | `collectors/fred.py` |
+| API: status, start/stop, run-once, macro snapshot | `routers/api.py` |
+
+> FRED ke liye free key chahiye: https://fredaccount.stlouisfed.org/apikeys
+> `.env` me `FRED_API_KEY` daalein. Key na ho to collector skip hota hai,
+> baaki sab chalta rehta hai.
 
 ### `feed` — ✅ kya bana
 

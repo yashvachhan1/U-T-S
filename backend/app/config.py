@@ -49,6 +49,14 @@ MAX_PRICE_DEVIATION_PCT = float(os.getenv("MAX_PRICE_DEVIATION_PCT", "10.0"))
 # Exchange-mandated algo identifier, sent with every order.
 ALGO_NAME = os.getenv("ALGO_NAME", "trading-desk")[:20]
 
+# --------------------------------------------------------------------------
+# External data sources
+# --------------------------------------------------------------------------
+# Free key: https://fredaccount.stlouisfed.org/apikeys
+# One key covers crude, DXY, US yields, VIX and India's policy-uncertainty
+# index, so it replaces half a dozen separate scrapers.
+FRED_API_KEY = os.getenv("FRED_API_KEY", "").strip()
+
 
 # Absolute ceilings. Config above cannot exceed these -- if it does, the app
 # refuses to start rather than quietly trading with the looser value.

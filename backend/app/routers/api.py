@@ -8,7 +8,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .. import config, db
+from .. import collectors
 from ..engine import backtester, feed_service, runner
+from ..store import macro as macro_store
 from ..strategies import base as strat
 from ..upstox import client, instruments, marketdata, trading
 
@@ -140,6 +142,59 @@ async def market_snapshot(body: KeysBody) -> list[dict]:
         return await marketdata.snapshot(body.instrument_keys[:200])
     except client.UpstoxError as exc:
         raise _wrap(exc) from exc
+
+
+# ============================================================= collectors
+@router.get("/collectors/status")
+async def collectors_status() -> dict:
+    return collectors.runner.status()
+
+
+@router.post("/collectors/start")
+async def collectors_start(names: str | None = None) -> dict:
+    wanted = names.split(",") if names else None
+    return {"started": await collectors.runner.start(wanted)}
+
+
+@router.post("/collectors/stop")
+async def collectors_stop() -> dict:
+    await collectors.runner.stop()
+    return {"ok": True}
+
+
+@router.post("/collectors/{name}/run")
+async def collectors_run_once(name: str) -> dict:
+    """Run one collector right now -- useful for testing a source."""
+    try:
+        points = await collectors.runner.run_once(name)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "collector": name,
+        "points": points,
+        "status": collectors.runner.collectors[name].status.as_dict(),
+    }
+
+
+@router.get("/macro/series")
+async def macro_known() -> list[dict]:
+    return macro_store.known_series()
+
+
+@router.get("/macro/series/{series_id}")
+async def macro_one(series_id: str, limit: int = 200) -> list[dict]:
+    return macro_store.series(series_id, limit)
+
+
+@router.get("/macro/snapshot")
+async def macro_snapshot() -> dict:
+    """Everything the decision layer reads from macro, in one call."""
+    return {
+        "fred": collectors.fred.macro_snapshot(),
+        "crypto": collectors.crypto.risk_state(),
+        "crude_rupee_stress": collectors.fred.crude_rupee_stress(),
+        "runs": macro_store.recent_runs(limit=10),
+    }
 
 
 # =================================================================== feed

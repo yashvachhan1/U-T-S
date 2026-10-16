@@ -104,6 +104,18 @@ PAPER_TRADING=true
 
 Yahi steps app ke **Setup** tab me bhi hain, redirect URL copy button ke saath.
 
+### Optional: FRED key (macro data)
+
+Crude, dollar index, US yields aur India ka policy-uncertainty index — sab ek
+free key se aate hain. [fredaccount.stlouisfed.org/apikeys](https://fredaccount.stlouisfed.org/apikeys)
+se key lekar `.env` me daalein:
+
+```ini
+FRED_API_KEY=aapki_fred_key
+```
+
+Key na ho to app chalta rahega, bas macro data nahi aayega.
+
 ---
 
 ## 3. Chalana
