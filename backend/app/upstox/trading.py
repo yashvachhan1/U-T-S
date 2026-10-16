@@ -2,17 +2,22 @@
 
 Everything that can spend real money funnels through `place_order`, which
 refuses to call Upstox at all while PAPER_TRADING is on.
+
+The order itself is built and guarded in orders.py; this module adds the parts
+that need the outside world -- the live price, the rate limiter, and the broker
+call.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from .. import config, db
-from . import client, instruments, marketdata
+from .. import config, db, ratelimit
+from . import client, instruments, marketdata, orders
 
-VALID_SIDES = {"BUY", "SELL"}
-VALID_PRODUCTS = {"I", "D", "MTF"}           # Intraday / Delivery / MTF
-VALID_ORDER_TYPES = {"MARKET", "LIMIT", "SL", "SL-M"}
+# Re-exported so existing callers keep working.
+VALID_SIDES = orders.VALID_SIDES
+VALID_PRODUCTS = orders.VALID_PRODUCTS
+VALID_ORDER_TYPES = orders.VALID_ORDER_TYPES
 
 
 def _symbol_for(instrument_key: str) -> str:
@@ -46,75 +51,114 @@ async def place_order(
     tag: str = "manual",
     source: str = "manual",
 ) -> dict[str, Any]:
-    side = side.upper()
-    order_type = order_type.upper()
-    product = product.upper()
+    """Build, guard, rate-limit and send one order.
 
-    if side not in VALID_SIDES:
-        raise client.UpstoxError(f"Side BUY ya SELL hona chahiye, mila: {side}")
-    if product not in VALID_PRODUCTS:
-        raise client.UpstoxError(f"Product I, D ya MTF hona chahiye, mila: {product}")
-    if order_type not in VALID_ORDER_TYPES:
-        raise client.UpstoxError(f"Order type galat hai: {order_type}")
-    quantity = int(quantity)
-    if quantity <= 0:
-        raise client.UpstoxError("Quantity 0 se zyada honi chahiye.")
-    if order_type in ("LIMIT", "SL") and not price:
-        raise client.UpstoxError(f"{order_type} order ke liye price dena zaroori hai.")
-    if order_type in ("SL", "SL-M") and not trigger_price:
-        raise client.UpstoxError(f"{order_type} order ke liye trigger price zaroori hai.")
+    `tag` is kept for callers that want to label a source; the tag actually
+    sent is the idempotency key, so a retry cannot create a second position.
+    """
+    req = orders.OrderRequest(
+        instrument_key=instrument_key,
+        side=side,
+        quantity=quantity,
+        order_type=order_type,
+        product=product,
+        price=price,
+        trigger_price=trigger_price,
+        validity=validity,
+        source=source or tag,
+    )
 
-    # ---------------- paper mode: record locally, touch nothing live -----
+    # A live price is needed to convert MARKET to a marketable limit, and to
+    # sanity-check any limit price we were handed.
+    ltp = await _reference_price(instrument_key, price or trigger_price)
+
+    try:
+        built = orders.build(req, ltp)
+    except orders.OrderRejected as exc:
+        raise client.UpstoxError(str(exc)) from exc
+
+    # Daily cap first: it is a hard stop, not something to queue behind.
+    try:
+        ratelimit.daily_orders.check()
+    except ratelimit.RateLimitExceeded as exc:
+        raise client.UpstoxError(str(exc)) from exc
+
+    # Then the per-second bucket. Waiting here is correct -- being a few
+    # hundred ms late beats breaching the exchange limit.
+    await ratelimit.orders.acquire()
+
+    symbol = _symbol_for(instrument_key)
+
+    # ---------------- paper mode: record locally, touch nothing live ----
     if config.PAPER_TRADING:
-        fill_price = await _reference_price(instrument_key, price or trigger_price)
+        ratelimit.daily_orders.record()
         order_id = db.execute(
             """INSERT INTO paper_orders
                (created_at, instrument_key, symbol, side, quantity, price,
                 order_type, product, status, source, note)
                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                db.now(),
-                instrument_key,
-                _symbol_for(instrument_key),
-                side,
-                quantity,
-                fill_price,
-                order_type,
-                product,
-                "complete",
-                source,
-                tag,
+                db.now(), instrument_key, symbol, built.payload["transaction_type"],
+                built.payload["quantity"], built.limit_price,
+                built.payload["order_type"], built.payload["product"],
+                "complete", source, built.tag,
             ),
         )
         return {
             "paper": True,
             "order_id": f"PAPER-{order_id}",
             "status": "complete",
-            "price": fill_price,
-            "message": f"Paper order: {side} {quantity} x {_symbol_for(instrument_key)} @ {fill_price}",
+            "price": built.limit_price,
+            "tag": built.tag,
+            "converted_from": built.converted_from,
+            "notes": built.notes,
+            "message": f"Paper order: {orders.describe(built)}",
         }
 
-    # ---------------- live mode -------------------------------------------
-    body = {
-        "quantity": quantity,
-        "product": product,
-        "validity": validity,
-        "price": float(price or 0),
-        "tag": tag[:20],
-        "instrument_token": instrument_key,
-        "order_type": order_type,
-        "transaction_type": side,
-        "disclosed_quantity": 0,
-        "trigger_price": float(trigger_price or 0),
-        "is_amo": False,
-    }
-    data = await client.post("/v2/order/place", json_body=body)
+    # ---------------- live mode -----------------------------------------
+    # A duplicate tag means this exact intent already went out -- almost always
+    # a retry after a timeout. Returning the existing order beats placing a second.
+    existing = await _find_order_by_tag(built.tag)
+    if existing:
+        return {
+            "paper": False,
+            "order_id": existing.get("order_id"),
+            "status": "duplicate",
+            "price": built.limit_price,
+            "tag": built.tag,
+            "message": f"Ye order pehle se bheja ja chuka hai (tag {built.tag}).",
+        }
+
+    ratelimit.daily_orders.record()
+    data = await client.post(
+        "/v2/order/place",
+        json_body=built.payload,
+        extra_headers=orders.algo_headers(),
+    )
     return {
         "paper": False,
         "order_id": (data or {}).get("order_id"),
         "status": "submitted",
-        "message": f"Live order bheja: {side} {quantity} x {_symbol_for(instrument_key)}",
+        "price": built.limit_price,
+        "tag": built.tag,
+        "converted_from": built.converted_from,
+        "notes": built.notes,
+        "message": f"Live order bheja: {orders.describe(built)}",
     }
+
+
+async def _find_order_by_tag(tag: str) -> dict | None:
+    """Look for an order we already placed with this idempotency tag."""
+    try:
+        book = await client.get("/v2/order/retrieve-all") or []
+    except client.UpstoxError:
+        # If the book is unreadable we cannot prove it is a duplicate. Let the
+        # order through rather than silently dropping a real one.
+        return None
+    for row in book:
+        if row.get("tag") == tag:
+            return row
+    return None
 
 
 async def cancel_order(order_id: str) -> dict:

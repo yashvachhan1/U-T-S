@@ -163,6 +163,7 @@ async def request(
     params: dict | None = None,
     json_body: dict | None = None,
     auth: bool = True,
+    extra_headers: dict[str, str] | None = None,
 ) -> Any:
     headers = {"accept": "application/json"}
     if auth:
@@ -172,6 +173,8 @@ async def request(
         headers["Authorization"] = f"Bearer {tok}"
     if json_body is not None:
         headers["Content-Type"] = "application/json"
+    if extra_headers:
+        headers.update(extra_headers)
 
     url = path if path.startswith("http") else f"{UPSTOX_BASE}{path}"
     async with httpx.AsyncClient(timeout=30, verify=SSL_CONTEXT) as c:

@@ -19,15 +19,29 @@
 
 🔴 **Ye pehle karna hai, warna live trading kaam hi nahi karegi.**
 
+### Code — ✅ ho gaya
+
+| # | Task | Kahan |
+|---|---|---|
+| 1 | ✅ **MARKET → LIMIT** (marketable limit, 0.3% band) | `upstox/orders.py` |
+| 2 | ✅ Tick-size rounding (BUY up, SELL down) | `upstox/orders.py` |
+| 3 | ✅ Order rate limiter — peak 8/sec, SEBI limit 10 | `ratelimit.py` |
+| 4 | ✅ Daily order cap (200) | `ratelimit.py` |
+| 5 | ✅ Algo tagging (`X-Algo-Name`) | `upstox/orders.py` |
+| 6 | ✅ Idempotency keys + duplicate detection | `upstox/orders.py` |
+| 7 | ✅ Fat-finger guard (max order value) | `upstox/orders.py` |
+| 8 | ✅ Price deviation guard (stale data) | `upstox/orders.py` |
+| 9 | ✅ Live mode needs a reference price | `upstox/orders.py` |
+| 10 | ✅ Config absolute ceilings + startup validation | `config.py`, `main.py` |
+
+25 tests: `.venv\Scripts\python.exe -m pytest tests -q`
+
+### Deployment — ⬜ aapko karna hai
+
 | # | Task | Kyun |
 |---|---|---|
-| 1 | **MARKET → LIMIT orders** | 1 April 2026 se Upstox API par MARKET band hai |
-| 2 | Market Price Protection handle karo | Default on hai ab |
-| 3 | Order rate limiter (<10/sec) | SEBI requirement |
-| 4 | Algo tagging (`X-Algo-Name`) | Exchange mandate |
-| 5 | Idempotency keys | Duplicate order se bacho |
-| 6 | Static IP / VPS setup | API access ke liye zaroori |
-| 7 | SSH tunnel access (public bind nahi) | [05-security.md](05-security.md) |
+| 11 | Static IP / VPS setup | API access ke liye zaroori |
+| 12 | SSH tunnel access (public bind nahi) | [05-security.md](05-security.md) |
 
 **Output:** live mode me order sach me lag sakta hai, aur surakshit hai.
 

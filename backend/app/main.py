@@ -19,6 +19,21 @@ INDEX = DIST / "index.html"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Refuse to start on unsafe config rather than quietly trading with it.
+    problems = config.validate()
+    if problems:
+        for p in problems:
+            print(f"[config] UNSAFE: {p}")
+        raise RuntimeError(
+            "Config safety limits ke bahar hai -- .env theek karein. "
+            "Details upar hain."
+        )
+
+    print(f"[startup] Order limits: {config.MAX_ORDERS_PER_SECOND}/sec, "
+          f"{config.MAX_ORDERS_PER_DAY}/day, max value Rs {config.MAX_ORDER_VALUE:,.0f}")
+    print(f"[startup] MARKET orders -> LIMIT with {config.MARKET_ORDER_BAND_PCT}% band "
+          f"(Upstox API me MARKET band hai)")
+
     if not instruments.loaded():
         print("[startup] Instrument list missing -- dashboard se refresh icon dabayein.")
     else:
