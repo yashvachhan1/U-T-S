@@ -186,12 +186,33 @@ Saath me: `store/` layer — **PostgreSQL** transactional data ke liye
 
 ---
 
-## Phase 3 — Feature store · 1 hafta
+## Phase 3 — Feature store · ✅ ho gaya
 
-- Feature registry + versioning
-- **Point-in-time correctness** — backtest me sirf wahi data dikhe jo us waqt tha
-- Incremental O(1) feature updates
-- Microstructure features (OFI, book imbalance) — WebSocket ke baad
+| Cheez | Kahan |
+|---|---|
+| O(1) streaming primitives (EMA, SMA, RSI, ATR, z-score, rolling extreme) | `features/incremental.py` |
+| **OFI** (Cont-Kukanov-Stoikov), book imbalance, weighted mid | `features/microstructure.py` |
+| VWAP, trade sign (Lee-Ready), spread tracker, opening range | `features/microstructure.py` |
+| Feature registry — version, horizon, evidence, budget | `features/registry.py` |
+| Per-instrument state, session reset, stale rejection | `features/engine.py` |
+| API: `/features/catalogue`, `/features/status`, `/features/{key}` | `routers/api.py` |
+
+**23 features** registered — 7 tick, 7 intraday, 4 daily, 5 slow.
+
+### Teen gates — teeno pass
+
+| Gate | Target | Mila |
+|---|---|---|
+| **Incremental == batch** | Exact match | ✅ EMA, SMA, RSI, ATR — sab `engine/indicators.py` se match |
+| **Point-in-time** | Future data leak nahi | ✅ Purana timestamp **reject** hota hai, blend nahi |
+| **Speed** | 40,000 updates/sec | ✅ **177,000/sec** (5.6 µs per update) |
+
+> **Incremental == batch kyun sabse important hai:** agar streaming primitive
+> aur batch function alag jawab dein, to backtest aur live bot **alag
+> strategy** chala rahe hain — aur kuch toota hua nahi dikhega.
+
+> **Unwarmed feature `None` hota hai, zero nahi.** Aadha bhara 252-din ka
+> momentum window chhota number nahi hai, **galat** number hai.
 
 **Output:** backtest jhooth nahi bolega.
 

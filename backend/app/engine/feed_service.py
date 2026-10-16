@@ -15,6 +15,7 @@ import asyncio
 from typing import Any
 
 from ..clock import now_ist
+from ..features.engine import engine as feature_engine
 from ..store import ticks as tick_store
 from ..upstox import feed as feed_mod
 from ..upstox import ticks as tick_codec
@@ -53,6 +54,9 @@ def _handle_frame(raw: bytes) -> None:
     for tick in frame.ticks:
         _latest[tick.instrument_key] = tick
         rows.append(tick.to_row())
+        # O(1) per feature, so this stays inside the socket loop. Stale ticks
+        # are rejected inside the engine rather than silently folded in.
+        feature_engine.on_tick(tick)
     _ticks_seen += len(rows)
     tick_store.writer.add_many(rows)
 
@@ -101,6 +105,7 @@ def status() -> dict[str, Any]:
         "instruments_cached": len(_latest),
         "last_frame_at": _last_frame_at,
         "market_status": _market_status,
+        "features": feature_engine.status(),
         "proto_available": tick_codec.PROTO_AVAILABLE,
         "proto_error": tick_codec.PROTO_ERROR,
     }

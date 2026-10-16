@@ -187,6 +187,37 @@ async def macro_one(series_id: str, limit: int = 200) -> list[dict]:
     return macro_store.series(series_id, limit)
 
 
+@router.get("/features/status")
+async def features_status() -> dict:
+    from ..features.engine import engine as fe
+    return fe.status()
+
+
+@router.get("/features/catalogue")
+async def features_catalogue() -> dict:
+    """Every registered feature, with version and why it is here."""
+    from ..features.registry import Horizon, registry
+    return {
+        "total": len(registry.names()),
+        "set_hash": registry.set_hash(registry.names()),
+        "budget_warnings": registry.check_budget(registry.names()),
+        "by_horizon": {
+            h.value: [s.to_json() for s in registry.by_horizon(h)] for h in Horizon
+        },
+    }
+
+
+@router.get("/features/{instrument_key:path}")
+async def features_for(instrument_key: str) -> dict:
+    from ..features.engine import engine as fe
+    snap = fe.snapshot(instrument_key)
+    if snap is None:
+        raise HTTPException(404, "Is instrument par abhi koi tick nahi aaya.")
+    state = fe.states[instrument_key]
+    return {"instrument_key": instrument_key,
+            "features": snap, "diagnostics": state.diagnostics()}
+
+
 @router.get("/news/recent")
 async def news_recent(limit: int = 50, source: str | None = None) -> list[dict]:
     return events_store.recent(limit=limit, source=source)
