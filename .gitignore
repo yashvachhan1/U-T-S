@@ -1,0 +1,39 @@
+# ===== Secrets — ye kabhi commit nahi hone chahiye =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ===== Runtime data =====
+data/
+backups/
+!data/.gitkeep
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node / frontend =====
+node_modules/
+frontend/dist/
+.vite/
+
+# ===== Editors / OS =====
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

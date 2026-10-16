@@ -1,0 +1,11 @@
+# Repo me LF rakho, Windows par checkout CRLF me hoga
+* text=auto eol=lf
+
+# Windows scripts ko CRLF chahiye
+*.bat text eol=crlf
+
+# Binary
+*.png binary
+*.jpg binary
+*.gz binary
+*.parquet binary
