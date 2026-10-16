@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .. import config, db
-from .. import collectors
+from .. import collectors, markets
 from ..engine import backtester, feed_service, runner
 from ..store import macro as macro_store
 from ..strategies import base as strat
@@ -184,6 +184,25 @@ async def macro_known() -> list[dict]:
 @router.get("/macro/series/{series_id}")
 async def macro_one(series_id: str, limit: int = 200) -> list[dict]:
     return macro_store.series(series_id, limit)
+
+
+@router.get("/markets/sessions")
+async def markets_sessions() -> dict:
+    """Which world markets are trading right now, in IST."""
+    return {
+        "now_ist": markets.now_ist().isoformat(timespec="seconds"),
+        "sessions": markets.session_overview(),
+        "open_now": markets.open_markets(),
+    }
+
+
+@router.get("/markets/global")
+async def markets_global() -> dict:
+    return {
+        **collectors.global_markets.overview(),
+        "etf_proxies": collectors.global_markets.etf_proxy_read(
+            feed_service.latest_price),
+    }
 
 
 @router.get("/macro/snapshot")

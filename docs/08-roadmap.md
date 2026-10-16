@@ -57,10 +57,29 @@
 | 1 | `feed` | **Upstox WebSocket** | ✅ **ho gaya** |
 | 2 | `crypto` | Binance — 24×7 | ✅ **ho gaya** |
 | 3 | `fred` | FRED API — crude, DXY, US10Y, India EPU | ✅ **ho gaya** |
-| 4 | `global_markets` | US futures, Asian markets, NSE ETF proxies | ⬜ |
+| 4 | `global_markets` | US futures, Asian markets, NSE ETF proxies | ✅ **ho gaya** |
 | 5 | `news` | NSE/BSE filings, RBI, SEBI, PIB + RSS | ⬜ |
 | 6 | `altdata` | Vidyut Pravah, VAHAN | ⬜ |
 | 7 | `uncertainty` | GPR, EPU (monthly) | ⬜ |
+
+### `global_markets` — ✅ kya bana
+
+| Cheez | Kahan |
+|---|---|
+| World market sessions IST me, **US + Australia DST** calculate hota hai | `markets.py` |
+| `overlaps_india()` — kaunsa market live signal hai, kaunsa sirf gap | `markets.py` |
+| Yahoo Finance se 10 markets (US futures, Asia, India) | `collectors/global_markets.py` |
+| Har quote par `live` ya `last_close` tag | `collectors/global_markets.py` |
+| Asia breadth read — ek market nahi, **paanch** milkar signal | `collectors/global_markets.py` |
+| US futures gap bias | `collectors/global_markets.py` |
+| NSE ETF proxies (MASPTOP50, MON100, HNGSNGBEES...) feed se | `collectors/global_markets.py` |
+| API: `/markets/sessions`, `/markets/global` | `routers/api.py` |
+
+> **Ek bug pakda:** Yahoo ka `chartPreviousClose` *range se pehle* ka close
+> hai, to `range=5d` par wo 6-din ka move deta hai. Usse "daily change" maan
+> lene se KOSPI ka +2.05% session −14.46% dikh raha tha, aur Asia read
+> "broadly positive" ki jagah "risk_off" bol raha tha. Ab change close-series
+> se aata hai, aur multi-day move alag field me.
 
 ### `crypto` + `fred` — ✅ kya bana
 
