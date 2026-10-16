@@ -124,6 +124,46 @@ class Collector:
         raise CollectorError(f"{self.name}: {url} failed after "
                              f"{MAX_ATTEMPTS} attempts ({last})")
 
+    async def http_post(
+        self, url: str, *, data: Any = None, headers: dict | None = None
+    ) -> Any:
+        """POST and return parsed JSON.
+
+        Some endpoints (Vidyut Pravah among them) answer 411 Length Required
+        for a body-less POST, so an empty string is sent rather than None.
+        """
+        if self.rate is not None:
+            await self.rate.acquire()
+
+        last: Exception | None = None
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=DEFAULT_TIMEOUT, verify=SSL_CONTEXT, follow_redirects=True
+                ) as c:
+                    r = await c.post(
+                        url, content=data if data is not None else b"",
+                        headers=headers or {})
+
+                if r.status_code == 429 or r.status_code >= 500:
+                    raise CollectorError(f"HTTP {r.status_code}")
+                if r.status_code >= 400:
+                    raise CollectorError(
+                        f"HTTP {r.status_code} (not retrying -- client error)")
+                return r.json()
+            except CollectorError as exc:
+                if "not retrying" in str(exc):
+                    raise CollectorError(f"{self.name}: {url} -> {exc}") from exc
+                last = exc
+                if attempt < MAX_ATTEMPTS - 1:
+                    await asyncio.sleep(2 ** attempt)
+            except Exception as exc:                 # noqa: BLE001
+                last = exc
+                if attempt < MAX_ATTEMPTS - 1:
+                    await asyncio.sleep(2 ** attempt)
+        raise CollectorError(f"{self.name}: POST {url} failed after "
+                             f"{MAX_ATTEMPTS} attempts ({last})")
+
     async def run(self) -> int:
         """One collection cycle. Returns points saved. Never raises."""
         self.status.runs += 1

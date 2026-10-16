@@ -235,6 +235,7 @@ async def macro_snapshot() -> dict:
         "fred": collectors.fred.macro_snapshot(),
         "crypto": collectors.crypto.risk_state(),
         "crude_rupee_stress": collectors.fred.crude_rupee_stress(),
+        "power": collectors.altdata.power_read(),
         "runs": macro_store.recent_runs(limit=10),
     }
 

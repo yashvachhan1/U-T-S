@@ -59,8 +59,34 @@
 | 3 | `fred` | FRED API — crude, DXY, US10Y, India EPU | ✅ **ho gaya** |
 | 4 | `global_markets` | US futures, Asian markets, NSE ETF proxies | ✅ **ho gaya** |
 | 5 | `news` | NSE filings, SEBI, PIB + RSS | ✅ **ho gaya** |
-| 6 | `altdata` | Vidyut Pravah, VAHAN | ⬜ |
+| 6 | `altdata` | Vidyut Pravah ✅, VAHAN ❌ | 🟡 **aadha** |
 | 7 | `uncertainty` | GPR, EPU (monthly) | ⬜ |
+
+### `altdata` — 🟡 aadha bana
+
+| Cheez | Status |
+|---|---|
+| **Vidyut Pravah** — live all-India power demand (GW) | ✅ chal raha hai |
+| Day-over-day change + activity classification | ✅ |
+| VAHAN daily registrations | ❌ browser automation chahiye |
+
+**Vidyut Pravah kaise solve hua:** site HTML me khaali placeholders (`-`)
+rakhti hai aur AJAX se bharti hai, to scraping se dash milte hain. Asli data
+page ke apne JavaScript me mile do POST endpoints se aata hai —
+`BindTopStatisticsFromJS` aur `BindCurrentDateTimeForJson`. Dono ko **body
+chahiye**, warna 411 Length Required. Values HTML spans me wrapped aati hain.
+
+> **Kyun valuable hai:** bijli ki demand industrial activity batati hai, aur
+> ye **abhi** milti hai. Usi period ka IIP ~6 hafte baad aata hai — tab tak
+> market move kar chuka hota hai.
+
+**VAHAN kyun nahi bana (honest reason):** uska dashboard PrimeFaces app hai jo
+data ~15 chained JSF AJAX POSTs se load karta hai. Har request par ViewState
+badalta hai, aur component IDs (`j_idt666` jaise) generated hain jo deployment
+ke saath badal jaate hain. HTTP client se replicate karna possible hai par
+**silently aur aksar toot jayega**. Iske liye asli browser automation chahiye
+— wo baaki collectors se alag kism ki dependency hai. Isliye guessed code
+ship karne ke bajaye ye gap document kiya hai.
 
 ### `news` — ✅ kya bana
 
