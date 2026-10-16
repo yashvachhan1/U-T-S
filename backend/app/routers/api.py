@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .. import config, db
-from ..engine import backtester, runner
+from ..engine import backtester, feed_service, runner
 from ..strategies import base as strat
 from ..upstox import client, instruments, marketdata, trading
 
@@ -140,6 +140,53 @@ async def market_snapshot(body: KeysBody) -> list[dict]:
         return await marketdata.snapshot(body.instrument_keys[:200])
     except client.UpstoxError as exc:
         raise _wrap(exc) from exc
+
+
+# =================================================================== feed
+@router.get("/feed/status")
+async def feed_status() -> dict:
+    return feed_service.status()
+
+
+@router.post("/feed/start")
+async def feed_start() -> dict:
+    if not client.access_token():
+        raise HTTPException(401, "Pehle Upstox me login karein.")
+    await feed_service.start()
+    return feed_service.status()
+
+
+@router.post("/feed/stop")
+async def feed_stop() -> dict:
+    await feed_service.stop()
+    return {"ok": True}
+
+
+class FeedSubBody(BaseModel):
+    instrument_keys: list[str] = Field(default_factory=list)
+    mode: str = "full"
+
+
+@router.post("/feed/subscribe")
+async def feed_subscribe(body: FeedSubBody) -> dict:
+    try:
+        added = await feed_service.subscribe(body.instrument_keys, body.mode)
+    except ValueError as exc:
+        raise HTTPException(400, f"Mode galat hai: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"added": sorted(added), "status": feed_service.status()["feed"]}
+
+
+@router.delete("/feed/subscribe")
+async def feed_unsubscribe(instrument_key: str) -> dict:
+    return {"removed": sorted(await feed_service.unsubscribe([instrument_key]))}
+
+
+@router.post("/feed/snapshot")
+async def feed_snapshot(body: KeysBody) -> list[dict]:
+    """Live prices straight from the feed cache -- no Upstox round trip."""
+    return feed_service.snapshot(body.instrument_keys or None)
 
 
 # ============================================================== watchlist

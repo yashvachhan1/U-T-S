@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .engine import runner
+from .engine import feed_service, runner
 from .routers.api import router as api_router
 from .upstox import instruments
 
@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
         print("[startup] frontend/dist missing -- 'npm run build' chalayein (ya setup.bat).")
     yield
     await runner.stop_all()
+    await feed_service.stop()
 
 
 app = FastAPI(title="Upstox Trading Desk", version="2.0.0", lifespan=lifespan)

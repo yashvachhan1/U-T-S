@@ -52,15 +52,29 @@
 > **Ye sabse jaldi shuru hona chahiye** — data jama hone me time lagta hai, aur
 > ML Phase 4 tak data ke bina nahi ho sakti.
 
-| # | Collector | Source |
-|---|---|---|
-| 1 | `feed` | **Upstox WebSocket** (polling replace karega) |
-| 2 | `crypto` | Binance — 24×7 |
-| 3 | `fred` | FRED API — crude, DXY, US10Y, India EPU |
-| 4 | `global_markets` | US futures, Asian markets, NSE ETF proxies |
-| 5 | `news` | NSE/BSE filings, RBI, SEBI, PIB + RSS |
-| 6 | `altdata` | Vidyut Pravah, VAHAN |
-| 7 | `uncertainty` | GPR, EPU (monthly) |
+| # | Collector | Source | Status |
+|---|---|---|---|
+| 1 | `feed` | **Upstox WebSocket** | ✅ **ho gaya** |
+| 2 | `crypto` | Binance — 24×7 | ⬜ |
+| 3 | `fred` | FRED API — crude, DXY, US10Y, India EPU | ⬜ |
+| 4 | `global_markets` | US futures, Asian markets, NSE ETF proxies | ⬜ |
+| 5 | `news` | NSE/BSE filings, RBI, SEBI, PIB + RSS | ⬜ |
+| 6 | `altdata` | Vidyut Pravah, VAHAN | ⬜ |
+| 7 | `uncertainty` | GPR, EPU (monthly) | ⬜ |
+
+### `feed` — ✅ kya bana
+
+| Cheez | Kahan |
+|---|---|
+| V3 WebSocket client, auto-reconnect with jittered backoff | `upstox/feed.py` |
+| Subscription state + per-mode key limits (5000/3000/2000/50) | `upstox/feed.py` |
+| Resubscribe on reconnect (server bhool jaata hai) | `upstox/feed.py` |
+| Official protobuf schema, compiled | `upstox/proto/` |
+| Tick decoder — 4 union shapes → ek flat Tick | `upstox/ticks.py` |
+| Derived: spread, mid, book imbalance, change % | `upstox/ticks.py` |
+| Parquet writer, background flush, bounded buffer | `store/ticks.py` |
+| Latest-price cache (order path isi se padhta hai) | `engine/feed_service.py` |
+| API: status, start, stop, subscribe, snapshot | `routers/api.py` |
 
 Saath me: `store/` layer — **PostgreSQL** transactional data ke liye
 (SQLite se migrate), **Parquet** ticks ke liye. Detail:
