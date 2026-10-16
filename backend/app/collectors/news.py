@@ -15,11 +15,17 @@ never parsed for instructions. See docs/05-security.md.
 
 Source status (probed 2026-10-16):
   NSE announcements  working  -- JSON, carries the symbol, the best source
+  RBI (4 feeds)      working  -- press releases, notifications, speeches,
+                                 publications. The documented Scripts/Rss.aspx
+                                 URLs serve HTML; the real feeds live at
+                                 rbi.org.in/<name>_rss.xml
   SEBI circulars     working  -- RSS
   PIB press releases working  -- RSS
   Moneycontrol/ET/BS working  -- RSS
-  BSE announcements  403      -- blocked without a session
-  RBI               no RSS    -- their feed URLs return HTML; needs scraping
+  BSE announcements  flaky    -- needs a Referer header or it is an instant
+                                 403, and rate-limits hard even with one.
+                                 Treated as best-effort: NSE already covers
+                                 most filings, BSE adds BSE-only listings.
 """
 from __future__ import annotations
 
@@ -42,6 +48,16 @@ BROWSER_HEADERS = {
 
 NSE_ANNOUNCEMENTS = "https://www.nseindia.com/api/corporate-announcements?index=equities"
 
+# BSE rejects anything without a Referer from its own site -- that alone turns
+# an instant 403 into a 200. It still rate-limits aggressively, so this is a
+# bonus source rather than one we depend on.
+BSE_ANNOUNCEMENTS = "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w"
+BSE_HEADERS = {
+    **BROWSER_HEADERS,
+    "Referer": "https://www.bseindia.com/corporates/ann.html",
+    "Origin": "https://www.bseindia.com",
+}
+
 
 @dataclass(frozen=True)
 class RssFeed:
@@ -54,6 +70,17 @@ class RssFeed:
 # Primary sources carry material information before anyone reports it.
 # Wire feeds are breadth, not speed.
 RSS_FEEDS = [
+    # RBI moves rates, liquidity and bank sentiment. Speeches are in here on
+    # purpose: research finds central-bank tone has a measurable effect on
+    # returns, and a significant one for India specifically.
+    RssFeed("rbi_press", "RBI press releases",
+            "https://rbi.org.in/pressreleases_rss.xml", "policy"),
+    RssFeed("rbi_notifications", "RBI notifications",
+            "https://rbi.org.in/notifications_rss.xml", "regulatory"),
+    RssFeed("rbi_speeches", "RBI speeches",
+            "https://rbi.org.in/speeches_rss.xml", "policy"),
+    RssFeed("rbi_publications", "RBI publications",
+            "https://rbi.org.in/Publication_rss.xml", "policy"),
     RssFeed("sebi", "SEBI", "https://www.sebi.gov.in/sebirss.xml", "regulatory"),
     RssFeed("pib", "PIB", "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3", "policy"),
     RssFeed("moneycontrol", "Moneycontrol",
@@ -130,6 +157,41 @@ def parse_nse(payload: Any) -> list[events.Event]:
     return out
 
 
+def parse_bse(payload: Any) -> list[events.Event]:
+    """Pure: BSE announcements JSON -> Events.
+
+    BSE identifies companies by scrip code and long name rather than a ticker,
+    so there is no symbol to attach the way NSE gives one. The company name is
+    kept in meta instead.
+    """
+    out: list[events.Event] = []
+    rows = (payload or {}).get("Table") if isinstance(payload, dict) else payload
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        headline = (row.get("NEWSSUB") or row.get("HEADLINE") or "").strip()
+        company = (row.get("SLONGNAME") or "").strip()
+        if not headline and not company:
+            continue
+        title = f"{company}: {headline}" if company and headline else (headline or company)
+        detail = (row.get("MORE") or row.get("NEWSBODY") or "").strip()
+        category, material = classify(headline, detail)
+        out.append(events.Event(
+            source="bse",
+            category=category,
+            title=title,
+            body=strip_html(detail),
+            url=(row.get("ATTACHMENTNAME") or "").strip(),
+            published_at=row.get("NEWS_DT") or row.get("DissemDT"),
+            meta={
+                "company": company,
+                "scrip_code": row.get("SCRIP_CD"),
+                "material": material,
+            },
+        ))
+    return out
+
+
 def parse_rss(feed: RssFeed, xml_text: str) -> list[events.Event]:
     """Pure: RSS/Atom XML -> Events. Malformed feeds yield nothing."""
     out: list[events.Event] = []
@@ -189,7 +251,7 @@ class NewsCollector(Collector):
         self.last_counts: dict[str, int] = {}
 
     async def fetch(self) -> Any:
-        raw: dict[str, Any] = {"nse": None, "rss": {}}
+        raw: dict[str, Any] = {"nse": None, "bse": None, "rss": {}}
 
         try:
             r = await self.http_get(NSE_ANNOUNCEMENTS, headers=BROWSER_HEADERS)
@@ -199,6 +261,27 @@ class NewsCollector(Collector):
             # source failing must not cost us the others.
             print(f"[news] NSE unavailable: {exc}")
 
+        # Best-effort: BSE blocks often enough that a failure here is routine.
+        try:
+            from datetime import timedelta
+
+            from ..clock import now_ist
+
+            today = now_ist().date()
+            r = await self.http_get(
+                BSE_ANNOUNCEMENTS,
+                params={
+                    "pageno": 1, "strCat": -1, "strType": "C", "strSearch": "P",
+                    "subcategory": -1, "strScrip": "",
+                    "strPrevDate": (today - timedelta(days=3)).strftime("%Y%m%d"),
+                    "strToDate": today.strftime("%Y%m%d"),
+                },
+                headers=BSE_HEADERS,
+            )
+            raw["bse"] = r.json()
+        except Exception as exc:          # noqa: BLE001
+            print(f"[news] BSE unavailable (expected sometimes): {exc}")
+
         for feed in RSS_FEEDS:
             try:
                 r = await self.http_get(feed.url, headers=BROWSER_HEADERS)
@@ -206,7 +289,7 @@ class NewsCollector(Collector):
             except Exception as exc:      # noqa: BLE001
                 print(f"[news] {feed.key}: {exc}")
 
-        if raw["nse"] is None and not raw["rss"]:
+        if raw["nse"] is None and raw["bse"] is None and not raw["rss"]:
             raise RuntimeError("Koi news source available nahi hai")
         return raw
 
@@ -218,6 +301,11 @@ class NewsCollector(Collector):
         if nse_rows:
             counts["nse"] = len(nse_rows)
             out.extend(nse_rows)
+
+        bse_rows = parse_bse((raw or {}).get("bse"))
+        if bse_rows:
+            counts["bse"] = len(bse_rows)
+            out.extend(bse_rows)
 
         feeds_by_key = {f.key: f for f in RSS_FEEDS}
         for key, xml_text in ((raw or {}).get("rss") or {}).items():

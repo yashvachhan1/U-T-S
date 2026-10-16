@@ -294,3 +294,83 @@ def test_run_records_failure_without_raising(clean_db, monkeypatch):
     monkeypatch.setattr(c, "fetch", boom)
     assert asyncio.run(c.run()) == 0
     assert c.status.failures == 1
+
+
+# ================================================================ BSE
+BSE_ROWS = {"Table": [
+    {"SLONGNAME": "Reliance Industries Ltd", "NEWSSUB": "Outcome of Board Meeting",
+     "MORE": "<p>Board approved <b>dividend</b></p>", "SCRIP_CD": 500325,
+     "NEWS_DT": "2026-10-16T17:00:00", "ATTACHMENTNAME": "x.pdf"},
+    {"SLONGNAME": "Some Co Ltd", "NEWSSUB": "Trading window closure"},
+]}
+
+
+def test_bse_parse_builds_title_from_company_and_headline():
+    """BSE identifies by scrip code and long name, not a ticker."""
+    out = news.parse_bse(BSE_ROWS)
+    assert len(out) == 2
+    assert out[0].source == "bse"
+    assert out[0].title.startswith("Reliance Industries Ltd:")
+    assert out[0].meta["scrip_code"] == 500325
+    assert out[0].symbols == []            # no ticker available from BSE
+
+
+def test_bse_material_classification():
+    out = news.parse_bse(BSE_ROWS)
+    assert out[0].category == "filing_material"    # board meeting + dividend
+    assert out[1].category == "filing"
+
+
+def test_bse_strips_html_from_body():
+    out = news.parse_bse(BSE_ROWS)
+    assert "<b>" not in out[0].body
+    assert "dividend" in out[0].body
+
+
+def test_bse_accepts_bare_list_or_table_wrapper():
+    assert len(news.parse_bse(BSE_ROWS["Table"])) == 2
+    assert len(news.parse_bse(BSE_ROWS)) == 2
+
+
+def test_bse_parse_handles_nothing():
+    assert news.parse_bse(None) == []
+    assert news.parse_bse({"Table": None}) == []
+    assert news.parse_bse({"Table": [{}, "junk"]}) == []
+
+
+def test_bse_sends_a_referer():
+    """Without it BSE returns an instant 403 -- this header is the fix."""
+    assert news.BSE_HEADERS["Referer"].startswith("https://www.bseindia.com")
+    assert "Origin" in news.BSE_HEADERS
+
+
+# ================================================================ RBI
+def test_rbi_feeds_registered():
+    """The documented Scripts/Rss.aspx URLs serve HTML; these are the real ones."""
+    keys = {f.key for f in news.RSS_FEEDS}
+    assert {"rbi_press", "rbi_notifications", "rbi_speeches"} <= keys
+    for feed in news.RSS_FEEDS:
+        if feed.key.startswith("rbi_"):
+            assert feed.url.endswith("_rss.xml"), feed.url
+
+
+def test_rbi_speeches_are_policy_category():
+    """Central-bank tone has a measurable effect on returns, India included."""
+    speeches = next(f for f in news.RSS_FEEDS if f.key == "rbi_speeches")
+    assert speeches.category == "policy"
+
+
+def test_parse_includes_bse_alongside_everything_else():
+    raw = {"nse": NSE_ROWS, "bse": BSE_ROWS, "rss": {"rbi_press": RSS_2}}
+    c = news.NewsCollector()
+    out = c.parse(raw)
+    assert c.last_counts == {"nse": 2, "bse": 2, "rbi_press": 2}
+    assert len(out) == 6
+
+
+def test_one_blocked_source_does_not_stop_the_rest():
+    """BSE 403s routinely; the other nine sources must still land."""
+    c = news.NewsCollector()
+    out = c.parse({"nse": NSE_ROWS, "bse": None, "rss": {"rbi_press": RSS_2}})
+    assert len(out) == 4
+    assert "bse" not in c.last_counts

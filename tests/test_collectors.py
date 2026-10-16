@@ -239,3 +239,51 @@ def test_binance_live_fetch(clean_db):
     btc = next(p for p in points if p.series_id == "CRYPTO_BTCUSDT")
     assert btc.value > 0
     assert btc.meta["risk_signal"] in ("neutral", "risk_off", "severe_risk_off")
+
+
+def test_client_errors_are_not_retried(clean_db, monkeypatch):
+    """A 403 answers the same way three times -- retrying just wastes time."""
+    import httpx
+    from app.collectors import base
+
+    calls = {"n": 0}
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None, headers=None):
+            calls["n"] += 1
+            return httpx.Response(403, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(base.httpx, "AsyncClient", lambda **kw: FakeClient())
+
+    c = base.Collector(name="t", source="t")
+    with pytest.raises(base.CollectorError, match="not retrying"):
+        asyncio.run(c.http_get("https://example.com"))
+    assert calls["n"] == 1
+
+
+def test_server_errors_are_retried(clean_db, monkeypatch):
+    import httpx
+    from app.collectors import base
+
+    calls = {"n": 0}
+
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, url, params=None, headers=None):
+            calls["n"] += 1
+            return httpx.Response(503, request=httpx.Request("GET", url))
+
+    async def no_sleep(_seconds):
+        """Patching asyncio.sleep with something that calls it recurses."""
+        return None
+
+    monkeypatch.setattr(base.httpx, "AsyncClient", lambda **kw: FakeClient())
+    monkeypatch.setattr(base.asyncio, "sleep", no_sleep)
+
+    c = base.Collector(name="t", source="t")
+    with pytest.raises(base.CollectorError):
+        asyncio.run(c.http_get("https://example.com"))
+    assert calls["n"] == base.MAX_ATTEMPTS

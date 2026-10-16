@@ -99,12 +99,24 @@ class Collector:
                     timeout=DEFAULT_TIMEOUT, verify=SSL_CONTEXT, follow_redirects=True
                 ) as c:
                     r = await c.get(url, params=params, headers=headers or {})
-                # 429 and 5xx are worth retrying; a 4xx will fail the same way
-                # every time, so fail fast and surface the real message.
+
                 if r.status_code == 429 or r.status_code >= 500:
                     raise CollectorError(f"HTTP {r.status_code}")
-                r.raise_for_status()
+
+                # Any other 4xx means the request itself is wrong or we are
+                # blocked. Retrying just burns three round trips to get the
+                # same answer, so fail immediately and say so.
+                if r.status_code >= 400:
+                    raise CollectorError(
+                        f"HTTP {r.status_code} (not retrying -- client error)")
+
                 return r
+            except CollectorError as exc:
+                if "not retrying" in str(exc):
+                    raise CollectorError(f"{self.name}: {url} -> {exc}") from exc
+                last = exc
+                if attempt < MAX_ATTEMPTS - 1:
+                    await asyncio.sleep(2 ** attempt)
             except Exception as exc:                 # noqa: BLE001
                 last = exc
                 if attempt < MAX_ATTEMPTS - 1:

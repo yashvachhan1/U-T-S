@@ -80,10 +80,22 @@
 | Source | Status |
 |---|---|
 | NSE announcements | ✅ JSON, symbol ke saath — sabse valuable |
+| **RBI** — press, notifications, **speeches**, publications | ✅ **4 RSS feeds** |
 | SEBI, PIB | ✅ RSS |
 | Moneycontrol, ET, Business Standard | ✅ RSS |
-| BSE announcements | ❌ 403 — session ke bina block |
-| RBI | ❌ RSS URLs HTML dete hain — HTML scraping chahiye hogi |
+| BSE announcements | 🟡 best-effort — `Referer` chahiye, phir bhi rate-limit karta hai |
+
+**RBI kaise solve hua:** unke documented URLs (`Scripts/Rss.aspx?Id=N`) HTML
+dete hain. Asli feeds `rbi.org.in/<name>_rss.xml` par hain —
+`pressreleases_rss.xml`, `notifications_rss.xml`, `speeches_rss.xml`,
+`Publication_rss.xml`. Speeches isliye liye kyunki research me central-bank
+tone ka measurable asar milta hai, aur **India ke liye significant**.
+
+**BSE kaise aadha solve hua:** bina `Referer: bseindia.com` ke **turant 403**
+aata hai — wo header hi asli fix hai. Uske saath 200 milta hai, par BSE phir
+bhi aggressively rate-limit karta hai. Isliye best-effort rakha: fail ho to
+log karke aage badh jaata hai. NSE waise bhi zyadatar filings cover karta hai;
+BSE sirf BSE-only listings add karta.
 
 > **News entry signal nahi hai.** Headline padhne tak move ho chuka hota hai.
 > Iska kaam **blackout aur exit** hai: "is stock par fresh news hai, naya
