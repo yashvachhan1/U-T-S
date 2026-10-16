@@ -15,3 +15,7 @@ psycopg[binary]>=3.2.0
 # Market data storage (ticks/candles as Parquet, queried with DuckDB)
 duckdb>=1.1.0
 pyarrow>=17.0.0
+
+# ML (Phase 4): gradient boosting + calibration
+lightgbm>=4.5.0
+scikit-learn>=1.5.0

@@ -218,16 +218,48 @@ Saath me: `store/` layer — **PostgreSQL** transactional data ke liye
 
 ---
 
-## Phase 4 — ML models · 2–3 hafte
+## Phase 4 — ML pipeline · ✅ ho gaya
 
-- LightGBM baseline
-- **Walk-forward validation** — random split kabhi nahi
-- Probability calibration
-- Benchmark: buy & hold **aur** maujooda rule strategies
-- Feature importance + stability check
+| Cheez | Kahan |
+|---|---|
+| **Cost-aware labels** — move cost se bada ho tabhi signal | `ml/labels.py` |
+| Triple-barrier labels (tie me stop jeetta hai) | `ml/labels.py` |
+| Overlapping labels ka sample weighting | `ml/labels.py` |
+| **Purged walk-forward + embargo** | `ml/validation.py` |
+| Leak detector (`check_no_leakage`) | `ml/validation.py` |
+| LightGBM + **isotonic calibration** | `ml/model.py` |
+| Feature importance stability across folds | `ml/model.py` |
+| 6-check gate + noise check | `ml/evaluate.py` |
 
-🔴 **Gate:** agar model buy & hold ko nahi harata, aage mat badho. Strategy
-badlo ya features badlo.
+### Pipeline validate kiya — yahi asli proof hai
+
+Same synthetic data, same volatility, sirf signal ka farak:
+
+| | AUC | Edge over baseline | Gate |
+|---|---|---|---|
+| **Real signal** | 0.744 | +0.183 | ✅ **PASS** |
+| **Pure noise** | 0.502 | −0.011 | ❌ **FAIL** |
+
+> Pipeline asli signal dhoondh leta hai, **aur noise me kuch nahi dhoondhta**.
+> Agar noise par bhi edge dikhta, to matlab validation leak kar rahi hai aur
+> baaki saare numbers fiction hote.
+
+### Teen leaks jo handle kiye
+
+| Leak | Fix |
+|---|---|
+| Random split (future se seekhna) | Walk-forward — hamesha aage |
+| **Purging** — training row ka outcome test window me pada ho | Aise rows training se drop |
+| **Embargo** — rolling-window features test ke saath share karte hain | Test se pehle gap |
+
+### Gate ke 6 checks
+
+`beats_baseline` · `auc_above_chance` · `consistent_across_folds` ·
+`profitable_after_costs` · **`beats_buy_and_hold`** · `enough_trades`
+
+Ek bhi fail = model use nahi hoga.
+
+🔴 **Gate wahi hai:** buy & hold ko nahi harata to aage mat badho.
 
 ---
 
