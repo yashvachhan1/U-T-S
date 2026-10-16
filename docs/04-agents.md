@@ -5,7 +5,7 @@
 
 ---
 
-## Layer 1 — Analysts (10)
+## Layer 1 — Analysts (12)
 
 Ye parallel chalte hain. Kaam: **messy text/numbers → structured JSON**.
 Model: fast/cheap.
@@ -22,8 +22,20 @@ Model: fast/cheap.
 | 8 | [Sector Rotation](agents/08-sector-rotation.md) | 4 | har 15 min, market hours | ~25 |
 | 9 | [Earnings](agents/09-earnings.md) | 4 | event-driven | ~20 |
 | 10 | [Power & Policy](agents/10-power-policy.md) | 9 | naya filing aane par | ~50 |
+| 11 | [Index Composition](agents/11-index-composition.md) | 7 | har 5 min, market hours | ~75 |
+| 12 | [Industry & Stock Selection](agents/12-industry.md) | 8 | har 15 min + pre-open | ~30 |
 
-**Analyst total: ~691 calls/day · 56 distinct sources**
+**Analyst total: ~796 calls/day · 71 distinct sources**
+
+Agents 11 aur 12 index ko andar se padhte hain:
+
+- **#11** Nifty/BankNifty ko ek number ki tarah nahi, uske 50 constituents ke
+  weighted sum ki tarah dekhta hai — breadth, contribution attribution aur
+  futures basis. "Nifty +0.42% par 39 stocks neeche" index ke apne number se
+  bilkul alag kahani hai.
+- **#12** global cue ko industry se jodta hai, phir us industry me stock
+  chunta hai. Agent #8 index-level sectors dekhta hai; ye ek level neeche
+  jaata hai.
 
 ## Layer 2 — Synthesis (2)
 
@@ -31,8 +43,8 @@ Model: strong. Yahan asli reasoning hoti hai.
 
 | # | Agent | Input | Frequency | Calls/day |
 |---|---|---|---|---|
-| 11 | [Chief Strategist](agents/11-chief-strategist.md) | 10 analysts + ML + rules | har 30 min | ~20 |
-| 12 | [Red Team](agents/12-red-team.md) | Chief Strategist ka output | har proposal par | ~20 |
+| 13 | [Chief Strategist](agents/13-chief-strategist.md) | 10 analysts + ML + rules | har 30 min | ~20 |
+| 14 | [Red Team](agents/14-red-team.md) | Chief Strategist ka output | har proposal par | ~20 |
 
 ## Layer 3 — Review (2)
 
@@ -40,34 +52,34 @@ Offline. Latency matter nahi karti.
 
 | # | Agent | Frequency | Calls/day |
 |---|---|---|---|
-| 13 | [Post-Trade Review](agents/13-post-trade-review.md) | Roz 16:00 | 1 |
-| 14 | [Risk Auditor](agents/14-risk-auditor.md) | Hafte me ek baar | 0.2 |
+| 15 | [Post-Trade Review](agents/15-post-trade-review.md) | Roz 16:00 | 1 |
+| 16 | [Risk Auditor](agents/16-risk-auditor.md) | Hafte me ek baar | 0.2 |
 
 ---
 
 ## 🔑 Kitni Groq API keys chahiye — asli hisaab
 
-**Total: ~735 calls/day**
+**Total: ~840 calls/day**
 
 Ab dekhte hain ye kitna load hai:
 
 | | |
 |---|---|
-| Calls/day | 735 |
-| Average | **~0.5 requests/minute** |
-| Peak burst (sab analysts ek saath) | **~10 requests/minute** |
+| Calls/day | 840 |
+| Average | **~0.6 requests/minute** |
+| Peak burst (sab analysts ek saath) | **~12 requests/minute** |
 
 | Tier | Limit | Hamara load fit hota hai? |
 |---|---|---|
 | Groq **free** | ~30 RPM, ~1,000 RPD | 🟡 RPM theek, **daily limit tight** |
 | Groq **paid** | ~1,000 RPM, 300K TPM | ✅ **aaram se** |
 
-### Jawab: 14 keys ki zarurat nahi
+### Jawab: 16 keys ki zarurat nahi
 
 | Stage | Keys | Kyun |
 |---|---|---|
 | **Development / testing** | **2–3 free keys** | Daily limits se bachne ke liye, pool me rotate |
-| **Paper trading** | **1 paid key** | 735/day << 1000 RPM |
+| **Paper trading** | **1 paid key** | 840/day << 1000 RPM |
 | **Production** | **1 paid + 1 backup** | Backup failover ke liye |
 
 Aap chahein to **har agent ko apni key** de sakte ho — ye bura design nahi hai,

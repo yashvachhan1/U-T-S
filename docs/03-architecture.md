@@ -44,7 +44,7 @@ Output: **actual trade decisions** — entry, exit, stop management
                                                             │
                          ┌──────────────────────────────────┼──────────────┐
                          ▼                                  ▼              ▼
-                   ML MODELS                        10 ANALYST        RULE SIGNALS
+                   ML MODELS                        12 ANALYST        RULE SIGNALS
                    (numbers)                        AGENTS (LLM)      (deterministic)
                          │                                  │              │
                          └──────────────┬───────────────────┴──────────────┘
@@ -66,7 +66,7 @@ Output: **actual trade decisions** — entry, exit, stop management
 
 ---
 
-## Components — 31 total
+## Components — 33 total
 
 ### Data & infra services (12) — deterministic, koi LLM nahi
 
@@ -89,10 +89,10 @@ Output: **actual trade decisions** — entry, exit, stop management
 13. `ml_models` — LightGBM etc., numbers predict karte hain
 14. `rule_signals` — EMA, Supertrend, OFI rules
 
-### LLM agents (14) → detail [04-agents.md](04-agents.md) aur [agents/](agents/README.md)
+### LLM agents (16) → detail [04-agents.md](04-agents.md) aur [agents/](agents/README.md)
 
 ### Core (3)
-29. `decision_engine` · 30. `risk_engine` · 31. `execution`
+31. `decision_engine` · 32. `risk_engine` · 33. `execution`
 
 ---
 

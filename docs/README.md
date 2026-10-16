@@ -91,10 +91,10 @@ agent, kya risk limits, aur code kaise structure hoga.
 |---|---|
 | Data / infra services | 12 |
 | ML + rule signal modules | 2 |
-| Analyst agents (LLM) | 10 |
+| Analyst agents (LLM) | 12 |
 | Synthesis agents (LLM) | 2 |
 | Review agents (LLM) | 2 |
 | Decision + Risk + Execution | 3 |
-| **Total** | **31** |
+| **Total** | **33** |
 
-LLM agents: **14**. Groq API keys ka hisaab [04-agents.md](04-agents.md) me hai.
+LLM agents: **16**. Groq API keys ka hisaab [04-agents.md](04-agents.md) me hai.
