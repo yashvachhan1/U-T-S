@@ -58,9 +58,37 @@
 | 2 | `crypto` | Binance — 24×7 | ✅ **ho gaya** |
 | 3 | `fred` | FRED API — crude, DXY, US10Y, India EPU | ✅ **ho gaya** |
 | 4 | `global_markets` | US futures, Asian markets, NSE ETF proxies | ✅ **ho gaya** |
-| 5 | `news` | NSE/BSE filings, RBI, SEBI, PIB + RSS | ⬜ |
+| 5 | `news` | NSE filings, SEBI, PIB + RSS | ✅ **ho gaya** |
 | 6 | `altdata` | Vidyut Pravah, VAHAN | ⬜ |
 | 7 | `uncertainty` | GPR, EPU (monthly) | ⬜ |
+
+### `news` — ✅ kya bana
+
+| Cheez | Kahan |
+|---|---|
+| NSE corporate announcements (JSON, **symbol ke saath**) | `collectors/news.py` |
+| SEBI + PIB + 3 RSS feeds | `collectors/news.py` |
+| RSS 2.0 **aur** Atom dono parse hote hain | `collectors/news.py` |
+| Material filing detection (board meeting, dividend, merger...) | `collectors/news.py` |
+| Content-hash dedup — ek story paanch baar nahi ginegi | `store/events.py` |
+| Untrusted text: control chars strip, length cap | `store/events.py` |
+| **Blackout symbols** — jin par fresh filing hai | `collectors/news.py` |
+| API: `/news/recent`, `/news/blackout`, `/news/symbol/{sym}` | `routers/api.py` |
+
+**Source status** (16 Oct 2026 par probe kiya):
+
+| Source | Status |
+|---|---|
+| NSE announcements | ✅ JSON, symbol ke saath — sabse valuable |
+| SEBI, PIB | ✅ RSS |
+| Moneycontrol, ET, Business Standard | ✅ RSS |
+| BSE announcements | ❌ 403 — session ke bina block |
+| RBI | ❌ RSS URLs HTML dete hain — HTML scraping chahiye hogi |
+
+> **News entry signal nahi hai.** Headline padhne tak move ho chuka hota hai.
+> Iska kaam **blackout aur exit** hai: "is stock par fresh news hai, naya
+> position mat lo." Isliye blackout deliberately conservative hai — har filing
+> ginti hai, sirf material nahi.
 
 ### `global_markets` — ✅ kya bana
 

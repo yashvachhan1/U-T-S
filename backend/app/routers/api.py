@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .. import config, db
 from .. import collectors, markets
 from ..engine import backtester, feed_service, runner
+from ..store import events as events_store
 from ..store import macro as macro_store
 from ..strategies import base as strat
 from ..upstox import client, instruments, marketdata, trading
@@ -184,6 +185,28 @@ async def macro_known() -> list[dict]:
 @router.get("/macro/series/{series_id}")
 async def macro_one(series_id: str, limit: int = 200) -> list[dict]:
     return macro_store.series(series_id, limit)
+
+
+@router.get("/news/recent")
+async def news_recent(limit: int = 50, source: str | None = None) -> list[dict]:
+    return events_store.recent(limit=limit, source=source)
+
+
+@router.get("/news/symbol/{symbol}")
+async def news_for_symbol(symbol: str, limit: int = 20) -> list[dict]:
+    return events_store.for_symbol(symbol, limit)
+
+
+@router.get("/news/blackout")
+async def news_blackout(minutes: int = 120) -> dict:
+    """Instruments with fresh filings -- no new positions in these."""
+    symbols = collectors.news.blackout_symbols(minutes)
+    return {"minutes": minutes, "count": len(symbols), "symbols": symbols}
+
+
+@router.get("/news/stats")
+async def news_stats() -> dict:
+    return events_store.stats()
 
 
 @router.get("/markets/sessions")
