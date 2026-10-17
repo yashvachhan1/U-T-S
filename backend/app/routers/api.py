@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from .. import config, db
 from .. import agents, collectors, markets
+from ..collectors import constituents
 from ..engine import backtester, feed_service, runner
 from ..store import events as events_store
 from ..store import macro as macro_store
@@ -204,6 +205,43 @@ async def agents_views() -> dict:
         "views": {n: v.to_payload() for n, v in views.items()},
         "size_multiplier": agents.combined_multiplier(list(views.values())),
     }
+
+
+@router.get("/agents/instruments")
+async def agents_instruments() -> dict:
+    """What the agents need subscribed, and what they are actually getting.
+
+    An unsubscribed agent is the quietest failure in the system: it reads
+    "not subscribed" on every line, returns a neutral view, and reports
+    itself healthy forever. This endpoint is how that becomes visible.
+    """
+    from ..engine import feed_service
+
+    wanted = agents.registry.required_instruments()
+    live = {row["instrument_key"] for row in feed_service.snapshot()}
+    missing = sorted(set(wanted) - live)
+    return {
+        "required": len(wanted),
+        "receiving": len(set(wanted) & live),
+        "missing": missing[:50],
+        "missing_total": len(missing),
+        "by_agent": {
+            name: sum(1 for key, who in wanted.items()
+                      if name in who and key in live)
+            for name in agents.registry.names()
+        },
+        "constituent_lists": constituents.status(),
+    }
+
+
+@router.post("/agents/constituents/refresh")
+async def agents_constituents_refresh() -> dict:
+    """Re-download the NSE index constituent lists.
+
+    Constituents change at index review, not during a session, so this is a
+    manual or daily job rather than something on the hot path.
+    """
+    return await constituents.refresh_all()
 
 
 @router.post("/agents/{name}/run")

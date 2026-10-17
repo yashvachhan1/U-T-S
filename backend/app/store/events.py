@@ -151,7 +151,14 @@ def save(events: Iterable[Event]) -> dict[str, int]:
 
 
 def recent(limit: int = 50, source: str | None = None,
-           category: str | None = None) -> list[dict[str, Any]]:
+           category: str | None = None, with_body: bool = False
+           ) -> list[dict[str, Any]]:
+    """Newest events first.
+
+    Bodies are left out unless asked for. Most callers only list headlines,
+    and a filing body can run to 20 KB -- pulling that for a sidebar would
+    cost far more than it returns.
+    """
     ensure_schema()
     where, params = [], []
     if source:
@@ -162,8 +169,10 @@ def recent(limit: int = 50, source: str | None = None,
         params.append(category)
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     params.append(limit)
+    body_col = ", body" if with_body else ""
     return db.query(
-        f"SELECT id, source, category, title, url, symbols, published_at, fetched_at "
+        f"SELECT id, source, category, title, url, symbols, published_at, "
+        f"fetched_at{body_col} "
         f"FROM events {clause} ORDER BY COALESCE(published_at, fetched_at) DESC LIMIT ?",
         tuple(params),
     )

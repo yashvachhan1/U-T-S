@@ -105,6 +105,17 @@ class Agent:
         """Collect the untrusted material. Returns text to be fenced."""
         raise NotImplementedError
 
+    def instrument_keys(self) -> dict[str, str]:
+        """Live instruments this agent needs, as label -> Upstox key.
+
+        An agent that is never subscribed reads "not subscribed" on every
+        line and returns a neutral view forever -- quietly, and looking
+        healthy the whole time. Declaring the need here lets the feed
+        subscribe exactly what the running agents require instead of a list
+        kept in sync by hand.
+        """
+        return {}
+
     # ---- shared ---------------------------------------------------------
     def system_prompt(self) -> str:
         return BASE_SYSTEM.format(
@@ -207,6 +218,19 @@ class AgentRegistry:
 
     async def run_one(self, name: str) -> AgentOutput:
         return await self.get(name).run()
+
+    def required_instruments(self) -> dict[str, list[str]]:
+        """Every live instrument the registered agents need, key -> who wants it."""
+        wanted: dict[str, list[str]] = {}
+        for name, agent in self.agents.items():
+            try:
+                keys = agent.instrument_keys()
+            except Exception:                      # noqa: BLE001
+                continue
+            for key in keys.values():
+                if key:
+                    wanted.setdefault(key, []).append(name)
+        return wanted
 
     def current_views(self) -> dict[str, AgentOutput]:
         return {name: a.current() for name, a in self.agents.items()}

@@ -20,11 +20,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (BaseModel, ConfigDict, Field, field_validator,
+                      model_validator)
 
 # Sector labels an agent may use. Anything else is dropped rather than passed
 # through, so a model cannot invent an exposure the risk engine then acts on.
@@ -206,3 +207,224 @@ def combined_multiplier(outputs: list[AgentOutput]) -> float:
     for out in outputs:
         mult *= out.size_multiplier()
     return max(0.0, min(1.0, mult))
+
+
+# --------------------------------------------------------------------------
+# Per-agent contracts
+#
+# Each analyst adds a few fields of its own. The rule applied throughout: an
+# agent is asked for a *judgement*, never for a number we already hold.
+# Prices, percentage moves and index levels come from the store and go into
+# the prompt; asking the model to echo them back only creates a chance for it
+# to get one wrong, and a hallucinated price that looks plausible is worse
+# than no price at all.
+#
+# So every field below is a small closed set or a bounded integer, and an
+# unrecognised value becomes the safe default instead of raising.
+# --------------------------------------------------------------------------
+def coerce_choice(value: Any, allowed: set[str], default: str) -> str:
+    """Map a model's word onto an allowed value, or fall back to the default."""
+    name = str(value or default).strip().lower().replace(" ", "_").replace("-", "_")
+    return name if name in allowed else default
+
+
+GAP_BIAS = {"positive", "negative", "flat"}
+REGIMES = {"calm", "elevated_risk", "crisis"}
+COMMODITY_DRIVERS = {"crude", "gold", "silver", "metals", "none"}
+RUPEE_DIRECTIONS = {"weakening", "stable", "strengthening"}
+RISK_APPETITE = {"improving", "stable", "deteriorating"}
+FACTORS = {"value", "quality", "low_vol", "none"}
+GUIDANCE = {"raised", "maintained", "lowered", "unknown"}
+TONES = {"confident", "cautious", "defensive", "unclear"}
+DRIFT = {"positive", "negative", "none"}
+POLICY_EVENTS = {
+    "policy", "regulatory", "state_visit", "budget", "insider_deal",
+    "bulk_deal", "legal_order", "other",
+}
+BREADTH_READS = {"broad", "narrow", "mixed"}
+INDEX_NAMES = {"NIFTY", "BANKNIFTY"}
+
+# The Industry column of NSE's own constituent CSVs. Taken from the files
+# rather than invented, so an agent's label joins back to real stocks.
+KNOWN_INDUSTRIES = {
+    "AUTOMOBILE_AND_AUTO_COMPONENTS", "CAPITAL_GOODS", "CHEMICALS",
+    "CONSTRUCTION", "CONSTRUCTION_MATERIALS", "CONSUMER_DURABLES",
+    "CONSUMER_SERVICES", "DIVERSIFIED", "FAST_MOVING_CONSUMER_GOODS",
+    "FINANCIAL_SERVICES", "HEALTHCARE", "INFORMATION_TECHNOLOGY",
+    "MEDIA_ENTERTAINMENT_&_PUBLICATION", "METALS_&_MINING",
+    "OIL_GAS_&_CONSUMABLE_FUELS", "POWER", "REALTY", "SERVICES",
+    "TELECOMMUNICATION", "TEXTILES",
+}
+
+
+def normalise_industry(raw: Any) -> str:
+    return str(raw or "").strip().upper().replace(" ", "_")
+
+
+class MarketGapOutput(AgentOutput):
+    """Asia and US markets: both answer the same question -- which way the gap."""
+
+    gap_bias: str = "flat"
+
+    @field_validator("gap_bias", mode="before")
+    @classmethod
+    def _bias(cls, v: Any) -> str:
+        return coerce_choice(v, GAP_BIAS, "flat")
+
+
+class MacroRegimeOutput(AgentOutput):
+    regime: str = "calm"
+
+    @field_validator("regime", mode="before")
+    @classmethod
+    def _regime(cls, v: Any) -> str:
+        return coerce_choice(v, REGIMES, "calm")
+
+
+class CommodityOutput(AgentOutput):
+    driver: str = "none"
+
+    @field_validator("driver", mode="before")
+    @classmethod
+    def _driver(cls, v: Any) -> str:
+        return coerce_choice(v, COMMODITY_DRIVERS, "none")
+
+
+class CurrencyOutput(AgentOutput):
+    rupee_direction: str = "stable"
+    rbi_intervention_flag: bool = False
+
+    @field_validator("rupee_direction", mode="before")
+    @classmethod
+    def _direction(cls, v: Any) -> str:
+        return coerce_choice(v, RUPEE_DIRECTIONS, "stable")
+
+
+class CryptoRiskOutput(AgentOutput):
+    """Bitcoin as a risk-appetite proxy -- and only in one direction.
+
+    BTC-equity correlation averages about 0.30 and is near zero in a calm
+    market; it runs toward 1.0 in a crisis, when everything risky falls
+    together. So a fall is informative and a rally is not. The model is told
+    this, and the schema enforces it: a bullish view is kept in the reasoning
+    but downgraded to neutral before anything can act on it.
+    """
+
+    risk_appetite: str = "stable"
+
+    @field_validator("risk_appetite", mode="before")
+    @classmethod
+    def _appetite(cls, v: Any) -> str:
+        return coerce_choice(v, RISK_APPETITE, "stable")
+
+    @model_validator(mode="after")
+    def _downside_only(self) -> "CryptoRiskOutput":
+        if self.view is View.BULLISH:
+            self.view = View.NEUTRAL
+            self.confidence = min(self.confidence, 0.2)
+            self.reasoning = (
+                self.reasoning
+                + " [bullish crypto view downgraded: upside carries no equity signal]"
+            )[:MAX_REASONING]
+        return self
+
+
+class SectorRotationOutput(AgentOutput):
+    factor_leader: str = "none"
+
+    @field_validator("factor_leader", mode="before")
+    @classmethod
+    def _factor(cls, v: Any) -> str:
+        return coerce_choice(v, FACTORS, "none")
+
+
+class EarningsOutput(AgentOutput):
+    guidance: str = "unknown"
+    tone: str = "unclear"
+    drift_expectation: str = "none"
+
+    @field_validator("guidance", mode="before")
+    @classmethod
+    def _guidance(cls, v: Any) -> str:
+        return coerce_choice(v, GUIDANCE, "unknown")
+
+    @field_validator("tone", mode="before")
+    @classmethod
+    def _tone(cls, v: Any) -> str:
+        return coerce_choice(v, TONES, "unclear")
+
+    @field_validator("drift_expectation", mode="before")
+    @classmethod
+    def _drift(cls, v: Any) -> str:
+        return coerce_choice(v, DRIFT, "none")
+
+
+class PowerPolicyOutput(AgentOutput):
+    """Leader actions and policy events, priced off historical analogues.
+
+    "If X visits Russia, defence stocks rise" is a story until it has a base
+    rate behind it. The schema makes the claim falsifiable by requiring the
+    count of analogues, and caps confidence when that count is thin -- a
+    confident answer drawn from two precedents is a confident answer drawn
+    from noise.
+    """
+
+    event_type: str = "other"
+    historical_n: int = Field(default=0, ge=0, le=500)
+
+    MIN_ANALOGUES: ClassVar[int] = 6
+    THIN_EVIDENCE_CAP: ClassVar[float] = 0.35
+
+    @field_validator("event_type", mode="before")
+    @classmethod
+    def _event(cls, v: Any) -> str:
+        return coerce_choice(v, POLICY_EVENTS, "other")
+
+    @field_validator("historical_n", mode="before")
+    @classmethod
+    def _count(cls, v: Any) -> int:
+        try:
+            return max(0, min(500, int(float(v))))
+        except (TypeError, ValueError):
+            return 0
+
+    @model_validator(mode="after")
+    def _cap_thin_evidence(self) -> "PowerPolicyOutput":
+        if self.historical_n < self.MIN_ANALOGUES:
+            self.confidence = min(self.confidence, self.THIN_EVIDENCE_CAP)
+        return self
+
+
+class IndexCompositionOutput(AgentOutput):
+    index: str = "NIFTY"
+    breadth_read: str = "mixed"
+
+    @field_validator("index", mode="before")
+    @classmethod
+    def _index(cls, v: Any) -> str:
+        name = str(v or "NIFTY").strip().upper().replace(" ", "")
+        return name if name in INDEX_NAMES else "NIFTY"
+
+    @field_validator("breadth_read", mode="before")
+    @classmethod
+    def _breadth(cls, v: Any) -> str:
+        return coerce_choice(v, BREADTH_READS, "mixed")
+
+
+class IndustryOutput(AgentOutput):
+    """Industry labels, checked against NSE's own column rather than free text."""
+
+    industries_positive: list[str] = Field(default_factory=list)
+    industries_negative: list[str] = Field(default_factory=list)
+
+    @field_validator("industries_positive", "industries_negative", mode="before")
+    @classmethod
+    def _clean_industries(cls, v: Any) -> list[str]:
+        if not isinstance(v, (list, tuple)):
+            return []
+        out: list[str] = []
+        for item in v:
+            name = normalise_industry(item)
+            if name in KNOWN_INDUSTRIES and name not in out:
+                out.append(name)
+        return out[:MAX_LIST_ITEMS]

@@ -263,13 +263,13 @@ Ek bhi fail = model use nahi hoga.
 
 ---
 
-## Phase 5 — Agent layer · 🟡 foundation + pehla agent ✅
+## Phase 5 — Agent layer · 🟡 saare 12 analysts ✅, synthesis baaki
 
 | Step | Status |
 |---|---|
 | 1 | ✅ `agents/base.py` — prompt fencing, schema validation, graceful degrade |
 | 2 | ✅ `agents/llm.py` — Groq via httpx, key pool, model routing, stub client |
-| 3 | ✅ **India News agent end-to-end** · ⬜ baaki 11 analysts |
+| 3 | ✅ **Saare 12 analyst agents** (13 instances — index agent do baar chalta hai) |
 | 4 | ⬜ Chief Strategist + Red Team |
 | 5 | ✅ `store/agent_outputs.py` — backtest replay ke liye |
 | 6 | ✅ Per-agent scorecard (`/agents/status`) |
@@ -307,7 +307,64 @@ Neutral view, system chalta rehta hai. **Koi feed timeout trading nahi rokta**
 Aur 30 min se purana output **current nahi maana jaata** — do ghante purani
 raay aaj ki raay nahi hoti.
 
-**Output:** foundation taiyar. Baaki 11 analysts aur synthesis isi base se banenge.
+### Chautha rule — model se number mat maango
+
+Analysts banate waqt ek rule aur add hua:
+
+> **Model se judgement maango, number nahi.** Jo number hamare paas pehle se
+> hai wo Python compute karta hai aur prompt me chala jaata hai.
+
+Kyun: 50 constituents me advancers ginna arithmetic hai. Model galat gine to
+**chup-chaap** galat ginega aur healthy dikhta rahega. Isliye breadth,
+industry median, advance ratio — sab Python me. Model sirf batata hai ki
+iska **matlab** kya hai.
+
+Isi wajah se Nifty 500 ka industry performance **median** se nikalta hai,
+mean se nahi — ek stock limit-up ho jaye to mean puri industry ko leader bana
+dega, aur agent stock-story ko industry-move samajh lega.
+
+### Schema me do safety rules hard-coded hain
+
+| Agent | Rule | Kyun |
+|---|---|---|
+| Crypto Risk | **bullish view → neutral** | BTC-equity correlation calm market me ~0, crash me 1.0 ki taraf. Signal sirf downside me hai. Prompt pe bharosa karna matlab us din bharosa karna jab number dramatic ho. |
+| Power & Policy | `historical_n < 6` → confidence 0.35 pe cap | 2 precedent se nikala confident base rate, noise se nikala confident base rate hai. |
+
+### Agent 11 & 12 ke liye naya reference data
+
+`collectors/constituents.py` — NSE ki apni constituent CSVs
+(`ind_nifty50list.csv`, `ind_niftybanklist.csv`, `ind_nifty500list.csv`).
+
+Teen cheezein ismein se free milti hain:
+
+| Kya | Kaise |
+|---|---|
+| Industry mapping | CSV me **Industry column** hai — exchange ka apna, hamein banana nahi pada |
+| Live subscription | CSV me **ISIN** hai, aur Upstox equity key `NSE_EQ|<isin>` hai — naam se search karne ki zarurat nahi |
+| Breadth | Weightage publish nahi hota, par breadth ko weight chahiye hi nahi |
+
+Verified: Nifty 50 → 50 rows, Bank Nifty → 14, Nifty 500 → 501, 20 industries.
+
+### Expired contract wala bug
+
+Agents wire karte waqt mila: `instruments.search("USDINR")` **expire ho chuka
+contract** pehle return kar raha tha, kyunki sort key me expiry ascending thi
+aur purana expiry hamesha chhota hota hai.
+
+Nateeja kya hota: currency agent ek aise key ko subscribe karta jo kabhi quote
+nahi karti — **chup-chaap andha**, aur status healthy. Fix: expired contracts
+ab last me sort hote hain (hataye nahi gaye — historical candles purani key se
+hi aati hain).
+
+### Subscription gap ab dikhta hai
+
+`GET /api/agents/instruments` batata hai ki agents ko **532 instruments**
+chahiye aur abhi kitne mil rahe hain. Ye sabse chup failure mode tha:
+unsubscribed agent har line par "not subscribed" padhta hai, neutral return
+karta hai, aur hamesha healthy dikhta hai.
+
+**Output:** 12 analysts chal rahe hain, 363 test pass. Synthesis pair
+(Chief Strategist + Red Team) agla kaam hai.
 
 ---
 

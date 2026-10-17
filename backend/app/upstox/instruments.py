@@ -16,6 +16,7 @@ import httpx
 
 from .client import SSL_CONTEXT
 
+from ..clock import now_ist
 from ..config import INSTRUMENTS_PATH
 
 SOURCES = {
@@ -116,6 +117,7 @@ def search(q: str, limit: int = 25, segment: str | None = None) -> list[dict[str
     if not q:
         return []
 
+    now_ms = now_ist().timestamp() * 1000
     scored: list[tuple[tuple, dict]] = []
     for r in all_instruments():
         if segment and r["segment"] != segment:
@@ -141,10 +143,17 @@ def search(q: str, limit: int = 25, segment: str | None = None) -> list[dict[str
         # NSE share before its 400 option strikes. Futures outrank option
         # strikes, and among contracts the nearest expiry wins -- that is the
         # one people actually trade.
+        # An expired contract is still in the master and sorts first by
+        # expiry, so without this an October future is returned in November:
+        # a dead key that quotes nothing and silently blinds whatever reads
+        # it. Expired contracts go last, never away -- old keys are still
+        # needed to look up historical candles.
         type_rank = 1 if r["type"] in ("CE", "PE") else 0
         expiry = r.get("expiry") or 0
+        expired = 1 if (expiry and expiry < now_ms) else 0
         scored.append((
-            (match, _SEGMENT_RANK.get(r["segment"], 9), type_rank, expiry, len(sym)), r))
+            (match, _SEGMENT_RANK.get(r["segment"], 9), type_rank, expired,
+             expiry, len(sym)), r))
 
     scored.sort(key=lambda x: x[0])
     return [r for _, r in scored[:limit]]
