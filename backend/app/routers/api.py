@@ -199,12 +199,35 @@ async def agents_views() -> dict:
 
     The multiplier is the only number that reaches position sizing, and it
     can never exceed 1.0 -- an agent may shrink a trade, never enlarge it.
+
+    Analyst and synthesis multipliers are reported separately on purpose.
+    The synthesis pair is a reading *of* the analysts, so multiplying the
+    two together would count the same caution twice.
     """
+    from ..agents.synthesis.chief_strategist import SYNTHESIS_AGENTS
+
     views = agents.registry.current_views()
+    analysts = [v for n, v in views.items() if n not in SYNTHESIS_AGENTS]
+    pair = agents.synthesis.current()
     return {
         "views": {n: v.to_payload() for n, v in views.items()},
-        "size_multiplier": agents.combined_multiplier(list(views.values())),
+        "analyst_multiplier": agents.combined_multiplier(analysts),
+        "synthesis": pair,
+        # What the risk engine reads: the synthesis pair's verdict.
+        "size_multiplier": pair["size_multiplier"],
     }
+
+
+@router.get("/agents/synthesis")
+async def agents_synthesis() -> dict:
+    """The latest stance and the challenge to it, without calling a model."""
+    return agents.synthesis.current()
+
+
+@router.post("/agents/synthesis/run")
+async def agents_synthesis_run() -> dict:
+    """Form a stance from the analysts, then have the Red Team attack it."""
+    return await agents.synthesis.run_pair()
 
 
 @router.get("/agents/instruments")

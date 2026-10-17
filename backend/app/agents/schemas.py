@@ -55,6 +55,23 @@ class Horizon(str, Enum):
     SWING = "swing"
 
 
+def clean_sector_list(v: Any) -> list[str]:
+    """Keep only sector labels the risk engine knows, de-duplicated.
+
+    Dropping an unknown label rather than passing it through matters: the
+    engine switches on these names, so an invented sector is either ignored
+    silently or acted on wrongly, and neither is acceptable.
+    """
+    if not isinstance(v, (list, tuple)):
+        return []
+    out: list[str] = []
+    for item in v:
+        name = str(item).strip().upper().replace(" ", "_").replace("-", "_")
+        if name in KNOWN_SECTORS and name not in out:
+            out.append(name)
+    return out[:MAX_LIST_ITEMS]
+
+
 class AgentOutput(BaseModel):
     """What every analyst agent returns.
 
@@ -89,14 +106,7 @@ class AgentOutput(BaseModel):
     @field_validator("sectors_positive", "sectors_negative", mode="before")
     @classmethod
     def _clean_sectors(cls, v: Any) -> list[str]:
-        if not isinstance(v, (list, tuple)):
-            return []
-        out = []
-        for item in v:
-            name = str(item).strip().upper().replace(" ", "_").replace("-", "_")
-            if name in KNOWN_SECTORS and name not in out:
-                out.append(name)
-        return out[:MAX_LIST_ITEMS]
+        return clean_sector_list(v)
 
     @field_validator("affected_symbols", mode="before")
     @classmethod
@@ -428,3 +438,225 @@ class IndustryOutput(AgentOutput):
             if name in KNOWN_INDUSTRIES and name not in out:
                 out.append(name)
         return out[:MAX_LIST_ITEMS]
+
+
+# --------------------------------------------------------------------------
+# Synthesis contracts
+#
+# The synthesis pair reads structured analyst output, never raw text. That is
+# a real security property and not just tidiness: by the time a headline
+# reaches the Chief Strategist it has already been through a schema, so the
+# only thing an attacker-controlled filing can do is move an enum and a float
+# that are both bounded.
+#
+# Both outputs keep the one-way rule, and both make it structural rather than
+# advisory. The Strategist exposes its exposure cap only through a function
+# that takes the configured limit and returns the smaller of the two; the Red
+# Team's multiplier is clamped at 1.0 and its silence is worth 0.5, not 1.0.
+# --------------------------------------------------------------------------
+STANCES = {"risk_on", "neutral", "risk_off", "insufficient_data"}
+RISK_BUDGETS = {"normal", "reduced", "minimal"}
+
+# What each stance does to position size. Nothing above 1.0 appears here, and
+# nothing ever will -- the table is the guarantee.
+STANCE_MULTIPLIER = {
+    "risk_on": 1.0,
+    "neutral": 1.0,
+    "risk_off": 0.5,
+    "insufficient_data": 0.5,
+}
+
+# A Red Team that did not run has not approved anything. Silence is worth
+# half size, never full.
+RED_TEAM_SILENT_MULTIPLIER = 0.5
+
+# Below this many usable analyst views there is nothing to synthesise.
+MIN_ANALYSTS = 3
+
+MAX_OBJECTION_CHARS = 300
+
+
+class StrategistOutput(AgentOutput):
+    """The day's stance: a posture, not a trade.
+
+    `max_exposure_pct` is the one number here that a risk engine acts on, so
+    it is never read directly. `exposure_cap()` takes the configured ceiling
+    and returns the lower of the two, which means the Strategist can tighten
+    the limit and has no way to loosen it -- the same asymmetry as
+    size_multiplier, applied to a different quantity.
+    """
+
+    stance: str = "neutral"
+    risk_budget: str = "normal"
+    allowed_sectors: list[str] = Field(default_factory=list)
+    blocked_sectors: list[str] = Field(default_factory=list)
+    max_exposure_pct: float = Field(default=100.0, ge=0.0, le=100.0)
+    analysts_used: int = Field(default=0, ge=0, le=100)
+
+    @field_validator("stance", mode="before")
+    @classmethod
+    def _stance(cls, v: Any) -> str:
+        return coerce_choice(v, STANCES, "neutral")
+
+    @field_validator("risk_budget", mode="before")
+    @classmethod
+    def _budget(cls, v: Any) -> str:
+        return coerce_choice(v, RISK_BUDGETS, "normal")
+
+    @field_validator("allowed_sectors", "blocked_sectors", mode="before")
+    @classmethod
+    def _sectors(cls, v: Any) -> list[str]:
+        return clean_sector_list(v)
+
+    @field_validator("max_exposure_pct", mode="before")
+    @classmethod
+    def _exposure(cls, v: Any) -> float:
+        try:
+            return max(0.0, min(100.0, float(v)))
+        except (TypeError, ValueError):
+            # An unreadable exposure figure is not a reason to assume full
+            # exposure. Fall back to the most cautious reading.
+            return 0.0
+
+    @model_validator(mode="after")
+    def _thin_input_is_not_a_stance(self) -> "StrategistOutput":
+        """Too few analysts means no stance, whatever the model wrote.
+
+        Synthesis is the act of weighing disagreement. With two opinions
+        there is nothing to weigh, and a confident stance drawn from them is
+        a confident stance drawn from one agent.
+        """
+        if self.analysts_used < MIN_ANALYSTS:
+            self.stance = "insufficient_data"
+            self.view = View.NEUTRAL
+            self.confidence = min(self.confidence, 0.2)
+            self.risk_budget = "minimal"
+        return self
+
+    def size_multiplier(self) -> float:
+        """The tightest of this agent's own signals, not their product.
+
+        A risk_off stance, a bearish view and a raised risk_flag are three
+        ways of saying one thing. Multiplying them compounds a single
+        judgement into 0.125 and reads as precision the agent never had. So
+        within one agent caution is a ceiling and the tightest wins; across
+        agents it still compounds, because those are genuinely separate
+        opinions.
+        """
+        return max(0.0, min(super().size_multiplier(),
+                            STANCE_MULTIPLIER[self.stance]))
+
+    def exposure_cap(self, configured_max_pct: float) -> float:
+        """The exposure limit to apply: the tighter of ours and the config's."""
+        return max(0.0, min(float(configured_max_pct), self.max_exposure_pct))
+
+    def sector_allowed(self, sector: str) -> bool:
+        """Blocked beats allowed. A sector named in both is blocked.
+
+        The model does not get a casting vote on its own contradiction, and
+        resolving it toward trading would turn a confused output into a
+        position.
+        """
+        name = str(sector or "").strip().upper().replace(" ", "_")
+        if name in self.blocked_sectors:
+            return False
+        return not self.allowed_sectors or name in self.allowed_sectors
+
+
+class RedTeamOutput(AgentOutput):
+    """The objection. Its only job is to find what is wrong with the plan.
+
+    An LLM asked "is this trade sound?" tends to agree, which is why no
+    agent that produced the plan is allowed to also approve it. This one is
+    given the opposite instruction and a schema in which agreement is the
+    value that must be earned: `agreement` defaults to False, the multiplier
+    is clamped at 1.0, and an agent that fails to run contributes 0.5.
+    """
+
+    objections: list[str] = Field(default_factory=list)
+    agreement: bool = False
+    suggested_size_multiplier: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @field_validator("objections", mode="before")
+    @classmethod
+    def _clean_objections(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, (list, tuple)):
+            return []
+        out = []
+        for item in v:
+            text = str(item or "").strip()[:MAX_OBJECTION_CHARS]
+            if text and text not in out:
+                out.append(text)
+        return out[:MAX_LIST_ITEMS]
+
+    @field_validator("suggested_size_multiplier", mode="before")
+    @classmethod
+    def _clamp_multiplier(cls, v: Any) -> float:
+        """Clamped to [0, 1]. The Red Team exists to shrink trades only."""
+        try:
+            return max(0.0, min(1.0, float(v)))
+        except (TypeError, ValueError):
+            return RED_TEAM_SILENT_MULTIPLIER
+
+    @model_validator(mode="after")
+    def _objections_outrank_agreement(self) -> "RedTeamOutput":
+        """Stated objections and claimed agreement cannot both stand.
+
+        A model that lists three reasons the trade is wrong and then sets
+        agreement to true has contradicted itself, and the objections are
+        the part that carries information.
+        """
+        if self.objections and self.agreement:
+            self.agreement = False
+            self.suggested_size_multiplier = min(
+                self.suggested_size_multiplier, RED_TEAM_SILENT_MULTIPLIER)
+        return self
+
+    def size_multiplier(self) -> float:
+        """Tightest of the stated multiplier and the base rules -- see above."""
+        return max(0.0, min(super().size_multiplier(),
+                            self.suggested_size_multiplier))
+
+
+def red_team_silent(reason: str = "red team unavailable") -> RedTeamOutput:
+    """What an absent Red Team contributes: half size, never full.
+
+    The default elsewhere is that a missing agent costs an opinion and
+    nothing else. That is wrong here. Full size means the plan survived a
+    challenge, and a challenge that never ran is not one it survived.
+    """
+    return RedTeamOutput(
+        view=View.NEUTRAL,
+        confidence=0.0,
+        agreement=False,
+        objections=[],
+        suggested_size_multiplier=RED_TEAM_SILENT_MULTIPLIER,
+        reasoning=reason,
+    )
+
+
+def synthesis_multiplier(strategist: StrategistOutput | None,
+                         red_team: RedTeamOutput | None) -> float:
+    """Final size multiplier from the synthesis pair.
+
+    Three rules, in order:
+
+      1. Both contribute their own multiplier, multiplicatively, as every
+         agent does.
+      2. A missing Red Team contributes 0.5, not 1.0.
+      3. Disagreement caps the result at 0.5. It is a ceiling rather than
+         another factor, so a Red Team that already asked for 0.3 is not
+         punished twice for also disagreeing.
+    """
+    strat = strategist or StrategistOutput(stance="insufficient_data")
+    red = red_team or red_team_silent()
+
+    mult = strat.size_multiplier() * red.size_multiplier()
+
+    disagrees = not red.agreement or bool(red.objections)
+    if disagrees and strat.view is not View.NEUTRAL:
+        mult = min(mult, 0.5)
+
+    return max(0.0, min(1.0, mult))

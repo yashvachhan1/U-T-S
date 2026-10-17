@@ -63,8 +63,10 @@ def registry():
 # Registration
 # --------------------------------------------------------------------------
 def test_all_twelve_analysts_are_registered(registry):
-    """Twelve agents, but thirteen entries -- the index agent runs twice."""
-    names = registry.names()
+    """Twelve analysts, thirteen entries -- the index agent runs twice."""
+    from app.agents.synthesis.chief_strategist import SYNTHESIS_AGENTS
+
+    names = [n for n in registry.names() if n not in SYNTHESIS_AGENTS]
     assert len(names) == 13
     for expected in ("india_news", "asia_markets", "us_markets", "global_macro",
                      "commodity", "currency", "crypto_risk", "sector_rotation",

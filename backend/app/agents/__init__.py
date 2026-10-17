@@ -21,6 +21,7 @@ from .base import Agent, AgentConfig, AgentRegistry, registry  # noqa: F401
 from .schemas import AgentOutput, View, combined_multiplier, neutral  # noqa: F401
 from . import llm  # noqa: F401
 from . import analysts  # noqa: F401
+from . import synthesis  # noqa: F401
 
 # Registration order is the order they appear in the dashboard: the fast
 # India-specific reads first, then the foreign channels, then the slow ones.
@@ -38,10 +39,14 @@ for _agent in (
     analysts.earnings.agent,
     analysts.global_macro.agent,
     analysts.power_policy.agent,
+    # Synthesis runs after the analysts and reads their stored output, so it
+    # is registered last -- the order is also the order they run in.
+    synthesis.chief_strategist.agent,
+    synthesis.red_team.agent,
 ):
     registry.register(_agent)
 
 del _agent
 
 __all__ = ["registry", "Agent", "AgentConfig", "AgentOutput", "View",
-           "neutral", "combined_multiplier", "llm", "analysts"]
+           "neutral", "combined_multiplier", "llm", "analysts", "synthesis"]

@@ -129,6 +129,20 @@ class Agent:
         payload = llm.extract_json(raw)
         return self.output_model.model_validate(payload)
 
+    def fallback(self, reason: str) -> AgentOutput:
+        """What this agent's absence means.
+
+        For an analyst, absence means no opinion: a neutral view, no change
+        to size. That is the right default when the agent's job is to spot
+        something, because not spotting it is the normal case.
+
+        It is the wrong default when the agent's job is to *object*. A Red
+        Team that never ran has not approved anything, so it overrides this
+        to return a reduced size rather than a full one. Putting the choice
+        here keeps it with the agent that understands its own silence.
+        """
+        return neutral(reason)
+
     async def run(self, *, persist: bool = True) -> AgentOutput:
         """One cycle. Never raises -- a dead agent returns a neutral view."""
         self.stats.calls += 1
@@ -151,11 +165,11 @@ class Agent:
             # follow the contract does not get to influence a trade.
             self.stats.rejected_schema += 1
             error = f"schema rejected: {str(exc)[:200]}"
-            output = neutral(error)
+            output = self.fallback(error)
         except Exception as exc:                  # noqa: BLE001
             self.stats.failures += 1
             error = str(exc)[:300]
-            output = neutral(error)
+            output = self.fallback(error)
 
         latency = int((time.perf_counter() - started) * 1000)
         self.stats.total_latency_ms += latency
@@ -185,11 +199,11 @@ class Agent:
         """
         row = store.latest(self.config.name, self.config.freshness_seconds)
         if row is None:
-            return neutral("no recent output")
+            return self.fallback("no recent output")
         try:
             return self.output_model.model_validate(row["payload"])
         except ValidationError:
-            return neutral("stored output failed validation")
+            return self.fallback("stored output failed validation")
 
     def status(self) -> dict[str, Any]:
         return {

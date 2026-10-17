@@ -263,14 +263,14 @@ Ek bhi fail = model use nahi hoga.
 
 ---
 
-## Phase 5 — Agent layer · 🟡 saare 12 analysts ✅, synthesis baaki
+## Phase 5 — Agent layer · 🟡 12 analysts + synthesis pair ✅, review pair baaki
 
 | Step | Status |
 |---|---|
 | 1 | ✅ `agents/base.py` — prompt fencing, schema validation, graceful degrade |
 | 2 | ✅ `agents/llm.py` — Groq via httpx, key pool, model routing, stub client |
 | 3 | ✅ **Saare 12 analyst agents** (13 instances — index agent do baar chalta hai) |
-| 4 | ⬜ Chief Strategist + Red Team |
+| 4 | ✅ **Chief Strategist + Red Team** |
 | 5 | ✅ `store/agent_outputs.py` — backtest replay ke liye |
 | 6 | ✅ Per-agent scorecard (`/agents/status`) |
 
@@ -363,8 +363,71 @@ chahiye aur abhi kitne mil rahe hain. Ye sabse chup failure mode tha:
 unsubscribed agent har line par "not subscribed" padhta hai, neutral return
 karta hai, aur hamesha healthy dikhta hai.
 
-**Output:** 12 analysts chal rahe hain, 363 test pass. Synthesis pair
-(Chief Strategist + Red Team) agla kaam hai.
+### Synthesis pair — stance banao, fir us par hamla karo
+
+Order fix hai aur yahi iska pura point hai: Chief Strategist analysts se
+**stance** banata hai, fir Red Team **usi stance** par hamla karta hai.
+Challenge karne wala kabhi likhne wala nahi ho sakta — LLM se apni hi
+reasoning review karwao to wo haan hi bolega.
+
+| Agent | Model | Kaam | Failure par |
+|---|---|---|---|
+| Chief Strategist | strong | 12 analysts → stance (regime, risk budget, sector allow/block, exposure cap) | `insufficient_data` |
+| Red Team | strong | Stance ke **khilaf** argue karna | **0.5x size** — 1.0x nahi |
+
+#### Agreement mehnga answer hai
+
+Red Team ka pura design is ek baat par tika hai: LLM naturally agreeable hai,
+aur **sabse zyada** tab jab plan accha likha ho — jo Chief Strategist ka
+output hamesha hota hai. Isliye haan bolna structurally mushkil banaya gaya:
+
+| | |
+|---|---|
+| `agreement` default **False** | Approval bolna padta hai, maan nahi liya jaata |
+| Objections + agreement ek saath nahi | Schema contradiction ko objections ki taraf resolve karta hai |
+| Red Team chala hi nahi → **0.5** | Full size ka matlab hai challenge jhela. Jo challenge hua hi nahi, wo jhela nahi gaya |
+| `suggested_size_multiplier` 0.0–1.0 clamp | Red Team risk ghata sakta hai, badha nahi |
+
+#### Ek agent ke andar caution **ceiling** hai, product nahi
+
+Pehla version 0.05 multiplier de raha tha. Wajah: `risk_off` stance,
+`bearish` view aur `risk_flag` — **ek hi judgement teen tarike se**, aur
+teeno multiply ho rahe the. 0.125 nikalta hai jo precision jaisa dikhta hai
+par hai nahi.
+
+> **Ek agent ke andar:** sabse tight wala jeetta hai (`min`).
+> **Alag agents ke beech:** multiply hota hai — wo sach me alag raayein hain.
+
+#### Final multiplier ka hisaab
+
+| Haalat | Multiplier |
+|---|---|
+| Calm stance + Red Team agree | 1.0 |
+| Stance + objection | 0.5 pe **cap** (dobara punish nahi) |
+| Red Team chala nahi | 0.5 |
+| Stance nahi bana | 0.5 |
+| Dono fail | 0.25 |
+
+Disagreement **ceiling** hai, ek aur factor nahi — Red Team ne pehle hi 0.3
+maanga hai to 0.15 nahi hoga, kyunki 0.3 maanga hi objection ki wajah se tha.
+
+#### Do defences jo prompt pe nahi tike
+
+1. **3 se kam analysts → model call hi nahi hota.** Synthesis ka matlab hai
+   disagreement tolna; do raay me tolne ko kuch hai hi nahi.
+2. **`analysts_used` model se nahi liya jaata** — store se jo mila wahi
+   likha jaata hai. Warna minimum-analysts rule ko wahi number enforce karta
+   jo model khud bhejta hai, matlab rule hai hi nahi.
+
+#### Raw text yahan tak aata hi nahi
+
+Synthesis ke saare input **pehle hi schema se guzar chuke** hain. Ek hostile
+filing yahan pahunchte-pahunchte ek bounded enum aur ek float ban chuki hoti
+hai. Ye doosri deewar hai, aur yahi tab bhi khadi rehti hai jab pehli toot jaye.
+
+**Output:** 12 analysts + synthesis pair chal rahe hain, 404 test pass.
+Review pair (Post-Trade Review + Risk Auditor) Phase 7 ke saath aayega —
+unhe chalane ke liye actual trades chahiye.
 
 ---
 

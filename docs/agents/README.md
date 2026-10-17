@@ -20,12 +20,16 @@ Har agent ki apni file. Overview aur API key ka hisaab:
 | 11 | [Index Composition](11-index-composition.md) | 7 | ~75 | fast | `index_composition.py` |
 | 12 | [Industry & Stock Selection](12-industry.md) | 8 | ~30 | fast | `industry.py` |
 
-## Synthesis (2)
+## Synthesis (2) — ✅ dono bane hue hain
 
-| # | Agent | Sources | Calls/day | Model |
-|---|---|---|---|---|
-| 13 | [Chief Strategist](13-chief-strategist.md) | 4 | ~20 | strong |
-| 14 | [Red Team (Devil's Advocate)](14-red-team.md) | 3 | ~20 | strong |
+| # | Agent | Sources | Calls/day | Model | Code |
+|---|---|---|---|---|---|
+| 13 | [Chief Strategist](13-chief-strategist.md) | 4 | ~20 | strong | `synthesis/chief_strategist.py` |
+| 14 | [Red Team (Devil's Advocate)](14-red-team.md) | 3 | ~20 | strong | `synthesis/red_team.py` |
+
+Pipeline: `synthesis/__init__.py` → `run_pair()` stance banata hai, fir usi
+par Red Team ka hamla. Har failure path **kam size** par girta hai, zyada par
+nahi.
 
 ## Review (2)
 
@@ -36,7 +40,7 @@ Har agent ki apni file. Overview aur API key ka hisaab:
 
 ---
 
-**Total: 16 agents · 86 source connections** — 12 analysts ✅, 4 baaki
+**Total: 16 agents · 86 source connections** — 14 ✅ (12 analysts + synthesis pair), review pair baaki
 
 ## Jo saare analysts pe laagu hota hai
 
