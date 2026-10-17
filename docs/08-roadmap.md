@@ -263,18 +263,51 @@ Ek bhi fail = model use nahi hoga.
 
 ---
 
-## Phase 5 — Agent layer · 2 hafte
+## Phase 5 — Agent layer · 🟡 foundation + pehla agent ✅
 
-| Step | Kya |
+| Step | Status |
 |---|---|
-| 1 | `agents/base.py` — prompt, schema validation, retry, cache |
-| 2 | `agents/llm.py` — Groq client, key pool, model routing |
-| 3 | 10 analyst agents |
-| 4 | Chief Strategist + Red Team |
-| 5 | Agent output storage (backtest replay ke liye) |
-| 6 | Per-agent scorecard |
+| 1 | ✅ `agents/base.py` — prompt fencing, schema validation, graceful degrade |
+| 2 | ✅ `agents/llm.py` — Groq via httpx, key pool, model routing, stub client |
+| 3 | ✅ **India News agent end-to-end** · ⬜ baaki 11 analysts |
+| 4 | ⬜ Chief Strategist + Red Team |
+| 5 | ✅ `store/agent_outputs.py` — backtest replay ke liye |
+| 6 | ✅ Per-agent scorecard (`/agents/status`) |
 
-**Output:** har agent ka output save ho raha hai aur measure ho raha hai.
+> Gate ke hisaab se **ek agent poora** banaya, baarah aadhe-adhoore nahi.
+> Jo yahan kaam kar gaya wo baaki sab reuse karenge.
+
+### Teen rules — ab enforce ho chuke hain
+
+| Rule | Kaise |
+|---|---|
+| **Agent order place nahi karta** | Sirf structured fields deta hai |
+| **Agent risk GHATA sakta hai, BADHA nahi** | `size_multiplier()` 1.0 pe capped — **100 bullish agents bhi 1.0 hi dete hain** |
+| **Har output store hota hai** | Backtest `as_of()` se replay karta hai, LLM call nahi |
+
+### Prompt injection — defence structural hai, prompt-based nahi
+
+Untrusted text fence ke andar jaata hai aur khud fence band nahi kar sakta.
+Par asli guarantee **wo nahi** hai — asli guarantee ye hai ki chahe model
+`confidence: 0.99, risk_flag: false` return kar de, **size multiplier 1.0 se
+upar jaa hi nahi sakta**.
+
+> Successful injection ka worst case: **trade nahi hua**. Paisa nahi gaya.
+
+Schema bhi sakht hai: unknown fields **reject**, unknown sectors **drop**,
+aur non-ticker text (`"BUY NOW!!! <script>"`) ko sanitise karke ticker jaisa
+banane ke bajaye **poora drop** kiya jaata hai — kyunki sanitise karne par wo
+`BUYNOWSCRIPT` ban jaata hai, jo dikhta ticker jaisa hai par hai nahi.
+
+### Agent fail ho to kya?
+
+Neutral view, system chalta rehta hai. **Koi feed timeout trading nahi rokta**
+— bas wo ek opinion chala jaata hai aur system thoda cautious ho jaata hai.
+
+Aur 30 min se purana output **current nahi maana jaata** — do ghante purani
+raay aaj ki raay nahi hoti.
+
+**Output:** foundation taiyar. Baaki 11 analysts aur synthesis isi base se banenge.
 
 ---
 
