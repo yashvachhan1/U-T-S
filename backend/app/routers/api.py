@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .. import config, db
-from .. import collectors, markets
+from .. import agents, collectors, markets
 from ..engine import backtester, feed_service, runner
 from ..store import events as events_store
 from ..store import macro as macro_store
@@ -185,6 +185,45 @@ async def macro_known() -> list[dict]:
 @router.get("/macro/series/{series_id}")
 async def macro_one(series_id: str, limit: int = 200) -> list[dict]:
     return macro_store.series(series_id, limit)
+
+
+@router.get("/agents/status")
+async def agents_status() -> dict:
+    return agents.registry.status()
+
+
+@router.get("/agents/views")
+async def agents_views() -> dict:
+    """Each agent's current view, plus the combined size multiplier.
+
+    The multiplier is the only number that reaches position sizing, and it
+    can never exceed 1.0 -- an agent may shrink a trade, never enlarge it.
+    """
+    views = agents.registry.current_views()
+    return {
+        "views": {n: v.to_payload() for n, v in views.items()},
+        "size_multiplier": agents.combined_multiplier(list(views.values())),
+    }
+
+
+@router.post("/agents/{name}/run")
+async def agents_run(name: str) -> dict:
+    try:
+        out = await agents.registry.run_one(name)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "agent": name,
+        "output": out.to_payload(),
+        "size_multiplier": out.size_multiplier(),
+        "status": agents.registry.get(name).status(),
+    }
+
+
+@router.get("/agents/{name}/history")
+async def agents_history(name: str, limit: int = 50) -> list[dict]:
+    from ..store import agent_outputs
+    return agent_outputs.history(name, limit)
 
 
 @router.get("/features/status")
