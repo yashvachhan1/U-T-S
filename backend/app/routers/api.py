@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .. import config, db
 from .. import agents, collectors, markets
 from ..collectors import constituents
+from ..engine import agent_feed
 from ..engine import backtester, feed_service, runner
 from ..store import events as events_store
 from ..store import macro as macro_store
@@ -232,29 +233,27 @@ async def agents_synthesis_run() -> dict:
 
 @router.get("/agents/instruments")
 async def agents_instruments() -> dict:
-    """What the agents need subscribed, and what they are actually getting.
+    """What the agents need, what is subscribed, and what is actually ticking.
 
     An unsubscribed agent is the quietest failure in the system: it reads
     "not subscribed" on every line, returns a neutral view, and reports
     itself healthy forever. This endpoint is how that becomes visible.
     """
-    from ..engine import feed_service
+    return agent_feed.status()
 
-    wanted = agents.registry.required_instruments()
-    live = {row["instrument_key"] for row in feed_service.snapshot()}
-    missing = sorted(set(wanted) - live)
-    return {
-        "required": len(wanted),
-        "receiving": len(set(wanted) & live),
-        "missing": missing[:50],
-        "missing_total": len(missing),
-        "by_agent": {
-            name: sum(1 for key, who in wanted.items()
-                      if name in who and key in live)
-            for name in agents.registry.names()
-        },
-        "constituent_lists": constituents.status(),
-    }
+
+@router.post("/agents/instruments/subscribe")
+async def agents_instruments_subscribe(refresh_lists: bool = False) -> dict:
+    """Subscribe the agent universe on the running feed.
+
+    With refresh_lists, re-download any constituent list older than a week
+    first. Subscriptions are recorded locally and replayed on connect, so
+    this is safe to call before the socket is up.
+    """
+    if refresh_lists:
+        return await agent_feed.refresh_universe()
+    return {"subscribed": await agent_feed.apply(),
+            "lists": constituents.status()}
 
 
 @router.post("/agents/constituents/refresh")
@@ -378,11 +377,24 @@ async def feed_status() -> dict:
 
 
 @router.post("/feed/start")
-async def feed_start() -> dict:
+async def feed_start(subscribe_agents: bool = True) -> dict:
+    """Start the feed and, by default, subscribe what the agents need.
+
+    Subscribing here rather than leaving it to the caller is deliberate: a
+    running feed with no agent instruments on it looks healthy from every
+    endpoint while every agent quietly returns neutral.
+    """
     if not client.access_token():
         raise HTTPException(401, "Pehle Upstox me login karein.")
     await feed_service.start()
-    return feed_service.status()
+
+    out = feed_service.status()
+    if subscribe_agents:
+        # Downloading constituent lists takes a few seconds on a cold
+        # start. Worth waiting for -- the answer then says what is actually
+        # subscribed instead of what will be subscribed eventually.
+        out["agents"] = await agent_feed.refresh_universe()
+    return out
 
 
 @router.post("/feed/stop")

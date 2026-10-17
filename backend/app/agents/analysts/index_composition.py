@@ -60,6 +60,11 @@ STALE_LIST_DAYS = 14
 
 
 class IndexCompositionAgent(Agent):
+    # Hundreds of constituents, and breadth needs only the last
+    # price and the previous close. Full depth on five hundred
+    # stocks would be most of the feed budget for data nothing
+    # here reads.
+    feed_mode = "ltpc"
     output_model = IndexCompositionOutput
 
     def __init__(self, index: str = "NIFTY", top_n: int = 5) -> None:

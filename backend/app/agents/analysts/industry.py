@@ -116,6 +116,11 @@ def industry_performance(changes: dict[str, float], groups: dict[str, list[str]]
 
 
 class IndustryAgent(Agent):
+    # Hundreds of constituents, and breadth needs only the last
+    # price and the previous close. Full depth on five hundred
+    # stocks would be most of the feed budget for data nothing
+    # here reads.
+    feed_mode = "ltpc"
     output_model = IndustryOutput
 
     def __init__(self, show_top: int = 6, stocks_per_industry: int = 6) -> None:

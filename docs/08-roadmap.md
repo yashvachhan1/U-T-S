@@ -425,9 +425,69 @@ Synthesis ke saare input **pehle hi schema se guzar chuke** hain. Ek hostile
 filing yahan pahunchte-pahunchte ek bounded enum aur ek float ban chuki hoti
 hai. Ye doosri deewar hai, aur yahi tab bhi khadi rehti hai jab pehli toot jaye.
 
-**Output:** 12 analysts + synthesis pair chal rahe hain, 404 test pass.
-Review pair (Post-Trade Review + Risk Auditor) Phase 7 ke saath aayega —
-unhe chalane ke liye actual trades chahiye.
+### Agents ab live feed se jude hain
+
+Pehle agents instruments **declare** karte the aur koi unhe subscribe nahi
+karta tha. Natija: har agent har line par "not subscribed" padhta, neutral
+return karta, aur **healthy dikhta rehta**. Trading system ka sabse chup
+failure mode yahi hai.
+
+`engine/agent_feed.py` ab 532 instruments subscribe karta hai:
+
+| Mode | Kitne | Kya | Kyun |
+|---|---|---|---|
+| `full` | 31 | Indices, sector indices, India VIX, factor ETFs, crude/gold/silver futures, USDINR, US/Asia ETF proxies | Depth aur volume chahiye |
+| `ltpc` | 501 | Nifty 500 constituents | Breadth ko sirf **price + previous close** chahiye |
+
+500 stocks par full depth maangna matlab poora feed budget un fields par
+kharch karna jo koi padhta hi nahi. `ltpc` frame me `ltp` aur `cp` dono
+aate hain — `change_pct` nikal aata hai, aur advance/decline ko bas yahi
+chahiye. (Test isi baat ko end-to-end verify karta hai.)
+
+#### Budget khatam ho to kya
+
+Mixed-mode subscription ka cap **1500** keys hai. 200 reserve rakhe gaye
+hain — user ka chart, order path ka pricing. Agar universe kabhi 1300 se
+upar jaye to **girne ka order fix hai**:
+
+```
+1. 31 headline instruments   (30 keys, 11 agents ko serve karte hain)
+2. Bank Nifty ke 15          (poora agent chal jaata hai)
+3. Nifty 50 ke 50
+4. Nifty 500 ka tail         ← yahi katega
+```
+
+Exception nahi aati, count report hota hai. Aadha feed kaam ka hai; startup
+par crash nahi.
+
+#### Ek key, ek mode
+
+Nifty 50 ko index agent `ltpc` me maangta hai aur sector rotation `full` me.
+Feed ek key ka ek hi mode rakh sakta hai, isliye **richer mode jeetta hai** —
+warna sector rotation ka volume chup-chaap chala jaata.
+
+#### Kab subscribe hota hai
+
+| Kab | Kya |
+|---|---|
+| App startup | Plan register ho jaata hai, socket se pehle — feed connect par **replay** kar deta hai |
+| `POST /api/feed/start` | Constituent lists refresh (7 din se purani ho to) + subscribe |
+| `GET /api/agents/instruments` | Kitne chahiye vs kitne subscribed vs kitne **tick kar rahe hain** |
+
+Teesri column alag hai aur yahi dekhne layak hai: subscribe ho jaana aur
+price aana do alag baatein hain, aur open ke baad kaafi der tak alag rehti hain.
+
+#### Ek flaky test theek kiya
+
+`test_updates_are_fast_enough_for_the_feed` kabhi-kabhi fail ho raha tha —
+33,000/sec, jabki akele chalane par 177,000/sec. Wo code ki speed nahi,
+machine ka sabse bura moment naap raha tha. Ab 5 chhote rounds me se
+**best** liya jaata hai: jo code sach me slow hai wo har round me fail
+karega, par CPU kisi aur ne le liya to build nahi girega.
+
+**Output:** 12 analysts + synthesis pair live feed se jude hue, 424 test
+pass. Review pair (Post-Trade Review + Risk Auditor) Phase 7 ke saath
+aayega — unhe chalane ke liye actual trades chahiye.
 
 ---
 

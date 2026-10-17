@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 from . import collectors
-from .engine import feed_service, runner
+from .engine import agent_feed, feed_service, runner
 from .routers.api import router as api_router
 from .upstox import instruments
 
@@ -41,6 +41,22 @@ async def lifespan(app: FastAPI):
         print(f"[startup] {len(instruments.all_instruments())} instruments ready.")
     mode = "PAPER (safe)" if config.PAPER_TRADING else "*** LIVE -- REAL MONEY ***"
     print(f"[startup] Trading mode: {mode}")
+
+    # Register what the agents need now, before the socket exists. The feed
+    # replays its subscriptions on connect, so doing this here means the
+    # agents have data from the first frame rather than from whenever
+    # someone remembers to subscribe them.
+    try:
+        planned = await agent_feed.apply()
+        counts = {m: v["added"] for m, v in planned.items() if isinstance(v, dict)}
+        print(f"[startup] Agent instruments queued: {counts}")
+        if planned.get("dropped_over_budget"):
+            print(f"[startup] {planned['dropped_over_budget']} instruments "
+                  f"dropped -- over the feed key budget.")
+    except Exception as exc:                      # noqa: BLE001
+        # Agents degrade to neutral without a feed. That is a worse day,
+        # not a reason to refuse to start.
+        print(f"[startup] Agent subscription planning failed: {exc}")
     if not INDEX.exists():
         print("[startup] frontend/dist missing -- 'npm run build' chalayein (ya setup.bat).")
     yield

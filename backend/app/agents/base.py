@@ -87,6 +87,17 @@ class Agent:
 
     output_model: Type[AgentOutput] = AgentOutput
 
+    # How much detail this agent's instruments need from the feed.
+    #
+    # "full" carries depth, volume and the traded price -- what a short
+    # watchlist of headline instruments is for. "ltpc" carries only the last
+    # price and the previous close, which is all a breadth calculation needs
+    # and costs a fraction of the bandwidth across five hundred stocks.
+    #
+    # Most agents watch a handful of things and default to full. The two
+    # that walk an index universe override this.
+    feed_mode: str = "full"
+
     def __init__(self, config: AgentConfig):
         self.config = config
         self.stats = AgentStats()
@@ -245,6 +256,28 @@ class AgentRegistry:
                 if key:
                     wanted.setdefault(key, []).append(name)
         return wanted
+
+    def feed_modes(self) -> dict[str, str]:
+        """Instrument key -> the mode to subscribe it in.
+
+        Where two agents want the same instrument at different detail, the
+        richer one wins. A Nifty constituent that the index agent only needs
+        a price for may also be a stock the sector agent wants depth on, and
+        subscribing it twice is not possible -- the feed holds one mode per
+        key, so the resolution has to happen here.
+        """
+        modes: dict[str, str] = {}
+        for agent in self.agents.values():
+            try:
+                keys = agent.instrument_keys()
+            except Exception:                      # noqa: BLE001
+                continue
+            for key in keys.values():
+                if not key:
+                    continue
+                if agent.feed_mode == "full" or key not in modes:
+                    modes[key] = agent.feed_mode
+        return modes
 
     def current_views(self) -> dict[str, AgentOutput]:
         return {name: a.current() for name, a in self.agents.items()}
