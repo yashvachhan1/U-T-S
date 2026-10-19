@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field
 from .. import config, db
 from .. import agents, collectors, markets
 from ..collectors import constituents
+from .. import decision
+from ..risk import killswitch
+from ..risk import state as risk_state
+from ..store import audit
 from ..engine import agent_feed
 from ..engine import backtester, feed_service, runner
 from ..store import events as events_store
@@ -284,6 +288,102 @@ async def agents_run(name: str) -> dict:
 async def agents_history(name: str, limit: int = 50) -> list[dict]:
     from ..store import agent_outputs
     return agent_outputs.history(name, limit)
+
+
+# ==========================================================================
+# Risk: the layer with the final say
+# ==========================================================================
+@router.get("/risk/status")
+async def risk_status(equity: float | None = None) -> dict:
+    """Kill-switch state and the account numbers every limit is checked against."""
+    return {
+        "switches": killswitch.status(),
+        "account": risk_state.snapshot(equity=equity),
+        "limits": {
+            "max_risk_per_trade_pct": config.MAX_RISK_PER_TRADE_PCT,
+            "max_position_pct": config.MAX_POSITION_PCT,
+            "max_open_positions": config.MAX_OPEN_POSITIONS,
+            "max_sector_exposure_pct": config.MAX_SECTOR_EXPOSURE_PCT,
+            "max_correlated_positions": config.MAX_CORRELATED_POSITIONS,
+            "max_total_exposure_pct": config.MAX_TOTAL_EXPOSURE_PCT,
+            "daily_loss_halt_pct": config.DAILY_LOSS_HALT_PCT,
+            "max_drawdown_halt_pct": config.MAX_DRAWDOWN_HALT_PCT,
+            "max_trades_per_day": config.MAX_TRADES_PER_DAY,
+            "trading_capital": config.TRADING_CAPITAL,
+        },
+    }
+
+
+class StopBody(BaseModel):
+    by: str = "user"
+    detail: str = ""
+
+
+@router.post("/risk/stop")
+async def risk_stop(body: StopBody) -> dict:
+    """STOP ALL. No new orders.
+
+    Open positions are deliberately untouched -- an automatic panic-exit
+    happens at the worst price of the day. Closing them is a human call.
+    """
+    await runner.stop_all()
+    return killswitch.stop_all(by=body.by, detail=body.detail)
+
+
+class ResetBody(BaseModel):
+    by: str
+    trigger: str | None = None
+
+
+@router.post("/risk/reset")
+async def risk_reset(body: ResetBody) -> dict:
+    """Clear a halt by hand. The name is recorded and is not optional."""
+    try:
+        return killswitch.reset(by=body.by, trigger=body.trigger)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/risk/sweep")
+async def risk_sweep(equity: float | None = None) -> dict:
+    """Re-check the automatic kill switches against current state."""
+    return await decision.sweep(equity=equity)
+
+
+class SignalBody(BaseModel):
+    instrument_key: str
+    side: str = "BUY"
+    source: str = "manual"
+    product: str = "I"
+    expected_move_pct: float = 0.0
+    probability: float = 0.0
+    stop_price: float = 0.0
+    target_price: float = 0.0
+    atr: float = 0.0
+    note: str = ""
+
+
+@router.post("/risk/evaluate")
+async def risk_evaluate(body: SignalBody, equity: float | None = None) -> dict:
+    """Run a signal through the risk engine without sending anything.
+
+    The same path a real decision takes, so a rejection here is the exact
+    rejection a live signal would get.
+    """
+    signal = decision.Signal(**body.model_dump())
+    result = await decision.decide(signal, equity=equity)
+    return result.as_dict()
+
+
+@router.get("/audit")
+async def audit_recent(limit: int = 100, kind: str | None = None) -> list[dict]:
+    return audit.recent(limit=limit, kind=kind)
+
+
+@router.get("/audit/verify")
+async def audit_verify() -> dict:
+    """Walk the hash chain and report the first row that does not fit."""
+    return {**audit.verify(), "stats": audit.stats()}
 
 
 @router.get("/features/status")

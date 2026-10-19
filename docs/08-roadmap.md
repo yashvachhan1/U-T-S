@@ -491,15 +491,163 @@ aayega — unhe chalane ke liye actual trades chahiye.
 
 ---
 
-## Phase 6 — Decision + Risk engine · 1–2 hafte
+## Phase 6 — Decision + Risk engine · 🟡 core ✅, execution baaki
 
-- Decision engine: ML + agents + rules → trade proposal
-- Risk engine: saare limits, kill switches
-- Execution: LIMIT orders, idempotency, retry
-- Reconciliation loop
-- Audit log
+| Step | Status |
+|---|---|
+| 1 | ✅ Risk engine — saare limits, `risk/engine.py` |
+| 2 | ✅ Kill switches — `risk/killswitch.py`, **drill pass** |
+| 3 | ✅ Decision engine — signal → proposal → decision |
+| 4 | ✅ Audit log — hash-chained, append-only |
+| 5 | ⬜ Execution loop: order bhejna, fill track karna, retry |
+| 6 | ⬜ Reconciliation loop (broker vs hamara record) |
 
-🔴 **Gate:** kill switches test kiye bina aage nahi.
+🔴 **Gate: kill switches test kiye bina aage nahi** — ✅ **ho gaya**, neeche dekho.
+
+### Pehla principle, code me
+
+```
+agents / model / strategy  ->  SUGGEST karte hain
+risk engine                ->  FAISLA, hamesha
+```
+
+Koi override nahi hai. Na force flag, na privileged caller, na aisi config
+jo check skip kar de — kyunki har aisa raasta **us din** use hota hai jis
+din nahi hona chahiye tha.
+
+### Config limit **tight** kar sakti hai, loose nahi
+
+Har limit ka ek hard ceiling code me hai (`config.py`), `.env` me nahi.
+Config ceiling se bahar ho to app **start hi nahi hoti**:
+
+| Config | Default | Hard ceiling |
+|---|---|---|
+| `MAX_RISK_PER_TRADE_PCT` | 1.0 | 2.0 |
+| `MAX_POSITION_PCT` | 10 | 25 |
+| `MAX_OPEN_POSITIONS` | 5 | 10 |
+| `MAX_TOTAL_EXPOSURE_PCT` | 80 | 100 |
+| `MAX_SECTOR_EXPOSURE_PCT` | 30 | 50 |
+| `DAILY_LOSS_HALT_PCT` | 3 | 5 |
+| `MAX_DRAWDOWN_HALT_PCT` | 10 | 20 |
+| `MAX_TRADES_PER_DAY` | 10 | 50 |
+
+Do aur checks: limit **zero** nahi ho sakti (zero tight limit nahi, absent
+limit hai), aur `DAILY_LOSS_HALT` `MAX_DRAWDOWN_HALT` se **neeche** hona
+chahiye — warna daily switch kabhi pehle fire hi nahi karega.
+
+### Kill switch: teen state
+
+| State | Naya entry | Exit | Kaun clear karta hai |
+|---|---|---|---|
+| RUNNING | ✅ | ✅ | — |
+| PAUSED | ❌ | ✅ | **khud** — stale feed, order rejects |
+| HALTED | ❌ | ✅ | **sirf insaan**, naam ke saath |
+
+Teen baatein jaan-boojhkar aise hain:
+
+1. **Halt position band nahi karta.** Automatic panic-exit din ke sabse
+   bure price par, sabse patle book me hota hai — aksar reversal se thik
+   pehle. Bahar nikalna aapka faisla hai; switch sirf aur andar jaane se
+   rokta hai.
+2. **Halt restart se nahi jaata.** Disk par likha jaata hai. Warna switch
+   advisory ban jaata — aur jis din wo matter karta hai, usi din restart
+   karne ka mann karega.
+3. **Clear karne ke liye naam zaroori hai.** "Kisne clear kiya, kab" —
+   halt sahi nikla to yahi pehla sawaal hota hai.
+
+### Switch **order path** par hai, sirf decision path par nahi
+
+Dashboard se diya gaya order decision engine ke paas jaata hi nahi. Isliye
+check `trading.place_order()` me hai — warna switch ke aas-paas jaane ka
+sabse tez raasta wahi button hota jo user ke paas pehle se hai.
+
+`intent="close"` wala order kabhi block nahi hota.
+
+### Position size **stop se** nikalta hai, fixed quantity se nahi
+
+```
+risk_rupees = capital x 1%
+quantity    = risk_rupees / (entry - stop)
+```
+
+Phir har cap lagta hai aur **sabse chhota jeetta** hai — aur `bound_by`
+batata hai kaunse ne bandha, kyunki "ye position itni chhoti kyun hai" ka
+jawab baad me nahi milta.
+
+| Cap | Kya |
+|---|---|
+| `risk` | 1% capital, stop distance se |
+| `position_cap` | 10% capital |
+| `exposure_left` | 80% total ke baad jo bacha |
+| `order_value` | fat-finger guard |
+| `agents` | synthesis multiplier — **sirf ghata sakta hai** |
+
+**Stop nahi to size nahi.** Stop ke bina risk-per-share hai hi nahi.
+Default stop maan lena matlab trader ki risk appetite khud bana lena.
+
+### Agent sirf ghata sakta hai — ab teen jagah enforce
+
+Schema me (`size_multiplier()` 1.0 par capped), sizing me (clamp), aur
+engine me (test). Teen jagah ek hi guarantee, kyunki yahi wo property hai
+jo prompt injection ko "trade nahi hua" bana deti hai, "paisa gaya" nahi.
+
+### Edge test — sabse zyada trade yahi rokta hai, aur rokna chahiye
+
+```
+expected_gain = value x expected_move% x probability
+cost          = brokerage x2 + taxes + slippage x2
+edge          = expected_gain - cost
+```
+
+Cost model **backtester ke same numbers** use karta hai (test isse verify
+karta hai) — warna jo trade backtest me profitable tha wo live me
+chup-chaap loss deta.
+
+0.3% ka expected move roughly round trip hai. Matlab model ke aadhe signals
+trade hai hi nahi — wo brokerage dekar raay batane ka tareeka hai.
+
+### Audit log — hash se chained
+
+Har decision likha jaata hai, **reject bhi** (khaas kar reject — "wo trade
+kyun nahi liya" baad me zaroor poochha jaata hai).
+
+Har row ka hash apne content + pichhle row ke hash par bana hai. Row delete
+ya edit karo to chain wahin se toot jaati hai aur `verify()` bata deta hai
+kahan. Ye determined attacker ke khilaf nahi hai — ye bug, manual sqlite
+"safai", aur aadhe restore kiye backup ke khilaf hai, jahan alternative ek
+aisa log hai jo poora dikhta hai aur hai nahi.
+
+### Drill — gate ka saboot
+
+```bash
+python tools/killswitch_drill.py
+```
+
+Scratch database par har switch jaan-boojhkar trigger karta hai. **13/13
+pass:**
+
+```
+[PASS] baseline allows trading        [PASS] halt survives a restart
+[PASS] daily loss halts trading       [PASS] drawdown halts trading
+[PASS] halted engine refuses a buy    [PASS] manual stop blocks entries
+[PASS] halted engine allows an exit   [PASS] manual stop leaves exits open
+[PASS] daily loss cannot self-clear   [PASS] stale feed pauses entries
+[PASS] stale feed clears itself       [PASS] pause cannot clear a halt
+[PASS] reset requires a name
+```
+
+### Ek cheez jo dekhne par kam nikli
+
+`btst_cap()` — overnight gap ke liye size ghatana. Default config par ye
+**lagbhag kabhi bind nahi karta**: 10% position cap par 5% gap ka matlab
+0.5% capital, jo 1% per-trade budget ke andar hi hai. Function rakha hai
+(position cap badhane par ya chaude gap assumption par kaam karta hai) par
+BTST ki asli protection position cap hai, ye nahi. Docstring aur test dono
+me likha hai — kyunki aisa guard jo dikhta protective hai aur hai nahi, wo
+na hone se bura hai.
+
+**Output:** risk engine + kill switches + decision engine + audit log,
+520 test pass, drill 13/13. Execution aur reconciliation loop agla kaam.
 
 ---
 

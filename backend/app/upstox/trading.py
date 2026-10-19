@@ -12,6 +12,9 @@ from __future__ import annotations
 from typing import Any
 
 from .. import config, db, ratelimit
+from ..risk import killswitch
+from ..risk import state as risk_state
+from ..store import audit
 from . import client, instruments, marketdata, orders
 
 # Re-exported so existing callers keep working.
@@ -50,12 +53,34 @@ async def place_order(
     validity: str = "DAY",
     tag: str = "manual",
     source: str = "manual",
+    intent: str = "open",
 ) -> dict[str, Any]:
     """Build, guard, rate-limit and send one order.
 
     `tag` is kept for callers that want to label a source; the tag actually
     sent is the idempotency key, so a retry cannot create a second position.
+
+    `intent` is "open" or "close". The kill switch is checked here rather
+    than only in the decision engine, because this is the one place every
+    order passes through -- a manual order from the dashboard reaches the
+    broker without going near the decision layer, and a kill switch that
+    only stops automated trades is not a kill switch.
+
+    Closing orders are never blocked. Being unable to leave a position is
+    worse than any condition that caused the halt.
     """
+    if intent != "close":
+        switches = killswitch.status()
+        if not switches["entries_allowed"]:
+            why = "; ".join(f"{r['trigger']}: {r['detail']}"
+                            for r in switches["reasons"]) or switches["state"]
+            audit.record("order_blocked", subject=instrument_key,
+                         outcome=switches["state"], detail={"reason": why,
+                                                            "source": source})
+            raise client.UpstoxError(
+                f"Trading {switches['state']} hai -- naya order nahi jayega. "
+                f"{why}. Position band karni ho to intent='close' bhejein.")
+
     req = orders.OrderRequest(
         instrument_key=instrument_key,
         side=side,
@@ -130,11 +155,26 @@ async def place_order(
         }
 
     ratelimit.daily_orders.record()
-    data = await client.post(
-        "/v2/order/place",
-        json_body=built.payload,
-        extra_headers=orders.algo_headers(),
-    )
+    try:
+        data = await client.post(
+            "/v2/order/place",
+            json_body=built.payload,
+            extra_headers=orders.algo_headers(),
+        )
+    except Exception:
+        # Counted before re-raising. A run of rejections pauses trading, and
+        # that switch only works if the rejections are recorded -- the
+        # failure path is exactly the one it exists to watch.
+        risk_state.record_order(rejected=True)
+        audit.record("order_rejected", subject=instrument_key, outcome="error",
+                     detail={"payload": built.payload, "source": source})
+        raise
+
+    risk_state.record_order()
+    audit.record("order_sent", subject=instrument_key,
+                 outcome=str((data or {}).get("order_id") or "submitted"),
+                 detail={"payload": built.payload, "price": built.limit_price,
+                         "source": source, "intent": intent, "tag": built.tag})
     return {
         "paper": False,
         "order_id": (data or {}).get("order_id"),
