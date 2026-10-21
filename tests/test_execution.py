@@ -44,12 +44,16 @@ INFY = "NSE_EQ|INE009A01021"
 @pytest.fixture
 def clean_db(tmp_path, monkeypatch):
     from app import db
+    from app.forward import journal
     from app.risk import state as risk_state
     from app.store import events as events_store
 
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr(db, "_local", type("L", (), {})())
-    stores = (tracker, risk_state, killswitch, audit, events_store)
+    # The loop now writes the forward-test journal too, so its schema flag
+    # has to be cleared along with the rest or it believes its tables exist
+    # in a database that is empty.
+    stores = (tracker, risk_state, killswitch, audit, events_store, journal)
     for store in stores:
         store._ready = False
     loop._reset_for_tests()
@@ -563,9 +567,10 @@ def test_one_failing_step_does_not_stop_the_others(clean_db, paper, monkeypatch)
 
     monkeypatch.setattr("app.upstox.trading.positions", broker)
     out = run(loop.cycle())
-    assert out["poll"] is None
-    assert out["sweep"] is not None
-    assert loop.status()["errors"] == 1
+    assert out["poll"] is None            # the step that was broken
+    assert out["sweep"] is not None       # the steps after it still ran
+    assert out["journal"] is not None
+    assert loop.status()["last_error"].startswith("poll:")
 
 
 def test_starting_the_loop_twice_is_harmless(clean_db):

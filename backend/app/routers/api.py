@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .. import config, db
@@ -12,6 +12,7 @@ from .. import agents, collectors, markets
 from ..collectors import constituents
 from .. import decision
 from .. import execution
+from .. import forward
 from ..risk import killswitch
 from ..risk import state as risk_state
 from ..store import audit
@@ -466,6 +467,64 @@ async def audit_recent(limit: int = 100, kind: str | None = None) -> list[dict]:
 async def audit_verify() -> dict:
     """Walk the hash chain and report the first row that does not fit."""
     return {**audit.verify(), "stats": audit.stats()}
+
+
+# ==========================================================================
+# Phase 7: the paper forward test
+# ==========================================================================
+@router.get("/forward/report")
+async def forward_report(limit: int = 1000) -> dict:
+    """Everything the forward test has established so far."""
+    return forward.report.collect(limit)
+
+
+@router.get("/forward/report.txt", response_class=PlainTextResponse)
+async def forward_report_text() -> str:
+    """The same report as plain text, for a terminal or a daily mail."""
+    return forward.report.text()
+
+
+@router.get("/forward/sessions")
+async def forward_sessions(limit: int = 90) -> dict:
+    rows = forward.journal.sessions(limit)
+    return {"sessions": rows, "summary": forward.journal.summary(rows)}
+
+
+@router.get("/forward/agents")
+async def forward_agents(limit: int = 1000) -> dict:
+    """Per-agent value-add, replayed from the views stored at entry time."""
+    return forward.attribution.report(limit)
+
+
+@router.get("/forward/checklist")
+async def forward_checklist() -> dict:
+    return forward.report.checklist()
+
+
+class BaselineBody(BaseModel):
+    label: str = ""
+    total_return_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    win_rate_pct: float = 0.0
+    trades: int = 0
+    sessions: int = 0
+
+
+@router.post("/forward/baseline")
+async def forward_baseline(body: BaselineBody) -> dict:
+    """Pin the backtest result the paper run is measured against.
+
+    Only one is kept, on purpose: keeping several invites picking the
+    flattering one afterwards, which is the failure this comparison exists
+    to catch.
+    """
+    return forward.compare.register(body.model_dump(exclude={"label"}),
+                                    label=body.label)
+
+
+@router.get("/forward/baseline")
+async def forward_baseline_get() -> dict:
+    return forward.compare.baseline() or {"registered": False}
 
 
 @router.get("/features/status")

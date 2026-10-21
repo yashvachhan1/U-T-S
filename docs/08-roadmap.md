@@ -758,19 +758,110 @@ audit log, execution aur reconciliation — 562 test pass, killswitch drill
 
 ---
 
-## Phase 7 — Paper forward-test · 2–3 mahine
+## Phase 7 — Paper forward-test · 🟡 setup ✅, ab 2–3 mahine chalana hai
 
 > **Ye skip karne ka mann karega. Mat karna.**
 
-| Kya check karna hai | Pass criteria |
-|---|---|
-| Paper results vs backtest | Bahut alag? → strategy live me kaam nahi karegi |
-| Har agent ka value-add | Jo add nahi karta, nikal do |
-| Drawdown | Backtest se zyada to nahi? |
-| Execution | Order fill ho rahe hain, reject nahi? |
-| Uptime | System roz chal raha hai bina crash ke? |
+Kyun mat karna: backtest ek **daava** hai jo aise insaan ne past par fit
+kiya jisko jawab pehle se pata the. Forward test pehla saboot hai ki kisi
+ko jawab pehle se pata nahi the. Aur ye system ka wo aadha hissa bhi test
+karta hai jise backtest chhu hi nahi sakta — process roz chalta hai ya
+nahi, order fill hote hain ya nahi, agents apni latency ke laayak hain ya
+nahi.
 
-**Output:** aapko pata hai ki system live me kaisa behave karega.
+| Kya check karna hai | Kahan |
+|---|---|
+| Paper results vs backtest | `forward/compare.py` |
+| Har agent ka value-add | `forward/attribution.py` |
+| Drawdown | `forward/journal.py` |
+| Execution (fill vs reject) | `forward/journal.py` |
+| Uptime | `forward/journal.py` |
+
+### Roz ka record
+
+Execution loop har cycle me journal likhta hai — alag timer se nahi.
+**Timer crash ke dauraan bhi chalta rehta hai**, aur crash hua ya nahi
+yahi to naapna hai. Isliye uptime **heartbeat ke gaps** se ginti hai: 60
+second se bada gap uptime me count hi nahi hota.
+
+Intraday low bhi rakha jaata hai, sirf close nahi — jo din 4% gir kar flat
+band hua, usne dopahar 4% neeche hi bitaayi thi, aur drawdown limit us waqt
+fire kar jaati.
+
+### Agent ka value-add — base rate ke against, zero ke against nahi
+
+Jis agent ki bullish calls average +0.4% deti hain wo kaam ka lagta hai —
+jab tak pata na chale ki **sample ki har trade** ne +0.4% diya. Isliye jo
+naapa jaata hai wo ye hai: jin trades par usne raay di, wo baaki se kitni
+alag nikli.
+
+View **replay** hoti hai, dobara compute nahi:
+`agent_outputs.as_of(agent, entry_time)` — us waqt us agent ne **asal me**
+kya kaha tha. Aaj dobara compute karna aise data se hota jo tab tha hi
+nahi, aur har agent ko barabar flatter karta.
+
+| Verdict | Matlab |
+|---|---|
+| `adds_value` | jin trades ko support kiya wo average se behtar nikle |
+| `costs_money` | ulta — **hatane par vichar karein** |
+| `no_measurable_effect` | edge base rate ke barabar — decision par asar nahi |
+| `not_enough_evidence` | 20 se kam directional raay — **koi number nahi diya jaata** |
+| `silent` | kisi trade par raay hi nahi di — coverage ka sawaal |
+
+Ye aakhri do important hain. **20 trades se kam par koi edge number
+nikalta hi nahi** — caveat ke saath number dena bekaar hai, kyunki caveat
+quote karte waqt gir jaata hai. Yahi discipline Power & Policy agent apne
+base rates par lagata hai.
+
+Neutral view **abstention** hai, kisi side me nahi ginti — warna jo agent
+kabhi commit nahi karta wo "aksar sahi" dikhne lagta.
+
+Risk flag bhi judge hota hai: agar flag wali trades average se **behtar**
+nikli, to flag opportunity kha raha hai aur badle me kuch de nahi raha.
+
+### Backtest se compare — gap ka naam liya jaata hai, score nahi
+
+| Gap | Matlab |
+|---|---|
+| Return bahut kam | cost/slippage backtest me kam aanke gaye |
+| **Drawdown bahut gehra** | **sizing galat — aur sizing ki galti capital ke saath badhti hai** |
+| Win rate theek, return kharab | entry sahi, **exit galat** |
+| Trades bahut kam | filters wo trades reject kar rahe hain jo backtest ne liye — aksar sahi, par tab dono ek hi strategy nahi naap rahe |
+
+Baseline **jaan-boojhkar** register karna padta hai. Koi guess nahi ki
+kaunsa backtest run match karta hai, aur **sirf ek** baseline rakha jaata
+hai — kai rakhne par baad me flattering wala chun lene ka raasta khul
+jaata hai, jo exactly wahi failure hai jiske liye ye comparison hai.
+
+### Checklist jo khud check hoti hai
+
+`docs/07-risk-limits.md` ki go-live list ka aadha hissa system khud jaanta
+hai: paper run lamba hai ya nahi, uptime, reject rate, config ceilings,
+har position par stop laga tha ya nahi, books match hue ya nahi, audit
+chain tooti to nahi. Wo sab **check hota hai, tick nahi hota** — yaad se
+tick ki hui checklist hamesha pass ho jaati hai.
+
+> Report kabhi **"live jao" nahi kehti**. Jo system apna hi paper khud
+> check kare wo saboot nahi hota. Baaki faisle alag list me hain.
+
+### Dekhne ke liye
+
+```bash
+python tools/forward_report.py          # asli data
+python tools/forward_report.py --demo   # 60 banaye hue sessions
+```
+
+Demo me problems jaan-boojhkar daale gaye hain, aur report dono pakad leti
+hai: ek agent jo market ulta padh raha hai (`costs_money`), aur ek run jo
+apne backtest se peeche hai par win rate wahi — jo exits ki taraf ishara
+karta hai, entries ki taraf nahi.
+
+**Output (setup ka):** roz ka record, per-agent attribution, backtest
+comparison aur self-checking checklist — 597 test pass.
+
+> **Asli output abhi baaki hai**, aur wo code se nahi aayega: 2–3 mahine
+> chalana padega. Setup ka matlab hai ki ab wo mahine **naape** jaa rahe
+> hain, guzar nahi rahe.
 
 ---
 

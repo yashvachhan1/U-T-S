@@ -69,10 +69,36 @@ async def cycle(*, reconcile_now: bool = True) -> dict[str, Any]:
 
     result["sweep"] = await _step("sweep", decision.sweep())
 
+    # The forward-test journal is written from here rather than on a timer
+    # of its own: uptime measured by a separate timer keeps counting
+    # through a crash, and whether it crashed is the thing being measured.
+    result["journal"] = await _step("journal", _record_session(result))
+
     _stats["cycles"] += 1
     _stats["last_run"] = result["at"]
     _stats["last_result"] = result
     return result
+
+
+async def _record_session(cycle_result: dict[str, Any]) -> dict[str, Any]:
+    """Keep the forward-test journal current. Never raises."""
+    from .. import config
+    from ..forward import journal
+    from ..risk import state as risk_state
+
+    equity = config.TRADING_CAPITAL
+    journal.open_session(equity)
+
+    snap = risk_state.snapshot(equity=equity)
+    journal.heartbeat(equity=equity + snap["realised_pnl_today"])
+
+    for trigger in (cycle_result.get("sweep") or {}).get("tripped", []):
+        journal.record_halt(trigger)
+
+    return journal.close_session(
+        realised_pnl=snap["realised_pnl_today"],
+        trades=snap["trades_today"], wins=snap["wins"], losses=snap["losses"],
+        orders_sent=snap["orders_sent"], orders_rejected=snap["orders_rejected"])
 
 
 async def _run() -> None:
