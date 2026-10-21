@@ -55,6 +55,8 @@ class USMarketsAgent(Agent):
             prompt_version="1.0",
             max_tokens=600,
             freshness_seconds=1200,
+            interval_seconds=1200,
+            window="always",
         ))
 
     def instrument_keys(self) -> dict[str, str]:

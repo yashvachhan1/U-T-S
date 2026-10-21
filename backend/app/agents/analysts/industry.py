@@ -130,6 +130,8 @@ class IndustryAgent(Agent):
             prompt_version="1.0",
             max_tokens=800,
             freshness_seconds=1200,
+            interval_seconds=1200,
+            window="market_hours",
         ))
         self.show_top = show_top
         self.stocks_per_industry = stocks_per_industry

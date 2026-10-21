@@ -83,6 +83,8 @@ class SectorRotationAgent(Agent):
             max_tokens=650,
             # Rotation is an intraday read and goes stale quickly.
             freshness_seconds=1200,
+            interval_seconds=1200,
+            window="market_hours",
         ))
 
     def instrument_keys(self) -> dict[str, str]:

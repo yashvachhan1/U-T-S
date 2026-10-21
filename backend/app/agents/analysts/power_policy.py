@@ -88,6 +88,8 @@ class PowerPolicyAgent(Agent):
             max_tokens=750,
             # Policy context holds for a while; this is a slow-loop agent.
             freshness_seconds=3600,
+            interval_seconds=3600,
+            window="always",
         ))
         self.max_items = max_items
         self.scan_limit = scan_limit

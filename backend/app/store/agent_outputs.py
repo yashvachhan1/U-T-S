@@ -99,6 +99,22 @@ def latest(agent: str, max_age_seconds: int | None = None) -> dict[str, Any] | N
     return row
 
 
+def last_attempt(agent: str) -> dict[str, Any] | None:
+    """The most recent run, successful or not.
+
+    `latest()` deliberately skips failures -- it answers "what does this
+    agent currently think", and a failed run thinks nothing. A scheduler
+    asking "when did it last run" needs the other answer: without this,
+    an agent failing every cycle looks like one that has never run, and
+    gets retried in a tight loop against whatever is already broken.
+    """
+    ensure_schema()
+    rows = db.query(
+        "SELECT * FROM agent_outputs WHERE agent = ? ORDER BY ts DESC LIMIT 1",
+        (agent,))
+    return _row(rows[0]) if rows else None
+
+
 def as_of(agent: str, when: str, max_age_seconds: int = 3600) -> dict[str, Any] | None:
     """What this agent had said by `when`.
 

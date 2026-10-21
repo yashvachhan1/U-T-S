@@ -66,6 +66,19 @@ class AgentConfig:
     # treated as absent rather than current.
     freshness_seconds: int = 1800
 
+    # How often the scheduler should run this agent, and when it is worth
+    # running at all. Every agent doc states a frequency; until these
+    # existed, nothing acted on any of them and the only way an agent ran
+    # was somebody pressing a button.
+    #
+    # window:
+    #   market_hours  only while the Indian equity session is open
+    #   always        round the clock -- crypto, US futures, Asia, macro
+    #   after_close   once, after the session ends (the daily review)
+    #   weekly        once a week (the risk audit)
+    interval_seconds: int = 1800
+    window: str = "market_hours"
+
 
 @dataclass
 class AgentStats:

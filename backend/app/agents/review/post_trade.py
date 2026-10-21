@@ -95,6 +95,8 @@ class PostTradeReviewAgent(Agent):
             max_tokens=900,
             # A daily report stays current for a day.
             freshness_seconds=86_400,
+            interval_seconds=86400,
+            window="after_close",
         ))
         self.max_items = max_items
 

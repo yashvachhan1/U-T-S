@@ -80,6 +80,8 @@ class IndexCompositionAgent(Agent):
             max_tokens=700,
             # Breadth is a fast-moving intraday read.
             freshness_seconds=900,
+            interval_seconds=900,
+            window="market_hours",
         ))
 
     def instrument_keys(self) -> dict[str, str]:

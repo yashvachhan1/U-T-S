@@ -61,6 +61,8 @@ class GlobalMacroAgent(Agent):
             max_tokens=600,
             # Regime changes slowly; an hour-old read is still a read.
             freshness_seconds=3600,
+            interval_seconds=3600,
+            window="always",
         ))
         self.max_items = max_items
 

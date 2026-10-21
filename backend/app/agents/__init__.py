@@ -23,6 +23,7 @@ from . import llm  # noqa: F401
 from . import analysts  # noqa: F401
 from . import synthesis  # noqa: F401
 from . import review  # noqa: F401
+from . import scheduler  # noqa: F401
 
 # Registration order is the order they appear in the dashboard: the fast
 # India-specific reads first, then the foreign channels, then the slow ones.
@@ -55,4 +56,4 @@ del _agent
 
 __all__ = ["registry", "Agent", "AgentConfig", "AgentOutput", "View",
            "neutral", "combined_multiplier", "llm", "analysts", "synthesis",
-           "review"]
+           "review", "scheduler"]

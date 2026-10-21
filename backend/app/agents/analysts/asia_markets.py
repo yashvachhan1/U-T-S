@@ -51,6 +51,8 @@ class AsiaMarketsAgent(Agent):
             # Asia trades through our morning, so a view from half an hour
             # ago may already be wrong.
             freshness_seconds=1200,
+            interval_seconds=1200,
+            window="always",
         ))
 
     def instrument_keys(self) -> dict[str, str]:

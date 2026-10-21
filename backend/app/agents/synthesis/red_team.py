@@ -94,6 +94,8 @@ class RedTeamAgent(Agent):
             max_tokens=900,
             # A challenge to a stance expires with the stance.
             freshness_seconds=1800,
+            interval_seconds=1800,
+            window="market_hours",
         ))
         self._stance: StrategistOutput | None = None
 

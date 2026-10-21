@@ -71,6 +71,8 @@ class CurrencyAgent(Agent):
             prompt_version="1.0",
             max_tokens=600,
             freshness_seconds=1800,
+            interval_seconds=1800,
+            window="market_hours",
         ))
         self.max_items = max_items
 

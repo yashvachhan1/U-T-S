@@ -61,6 +61,8 @@ class IndiaNewsAgent(Agent):
             # Filings arrive all day, so a view older than half an hour is
             # not a current view.
             freshness_seconds=1800,
+            interval_seconds=900,
+            window="market_hours",
         ))
         self.lookback_minutes = lookback_minutes
         self.max_items = max_items

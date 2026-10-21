@@ -50,17 +50,19 @@ export default function Agents() {
   const [views, setViews] = useState(null)
   const [status, setStatus] = useState({})
   const [feed, setFeed] = useState(null)
+  const [schedule, setSchedule] = useState(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState(null)
 
   const load = useCallback(async () => {
     try {
-      const [v, s, f] = await Promise.all([
+      const [v, s, f, sch] = await Promise.all([
         get('/agents/views'),
         get('/agents/status'),
         get('/agents/instruments').catch(() => null),
+        get('/agents/schedule').catch(() => null),
       ])
-      setViews(v); setStatus(s); setFeed(f); setError(null)
+      setViews(v); setStatus(s); setFeed(f); setSchedule(sch); setError(null)
     } catch (e) {
       setError(e.message)
       setViews((prev) => prev)        // keep the last good read on screen
@@ -218,6 +220,45 @@ export default function Agents() {
         </Panel>
       </div>
 
+      {schedule && !schedule.configured && (
+        <div className="halt-banner paused" style={{ marginBottom: 12 }}>
+          <Icon name="alert" />
+          <div>
+            <div className="halt-title">Agents apne aap nahi chal rahe</div>
+            <div className="halt-why">
+              Groq key nahi hai. Scheduler jaan-boojhkar kuch nahi chalata —
+              warna har 15 minute me pandrah khali raayein store me bhar
+              jaatin aur asli wale dab jaate. Key daalte hi apne aap shuru
+              ho jayega.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {schedule && schedule.configured && (
+        <Panel title="Schedule"
+               right={<StatusTag tone={schedule.due_now.length ? 'ok' : 'good'}
+                                 icon={schedule.due_now.length ? 'info' : 'check'}>
+                 {schedule.due_now.length ? `${schedule.due_now.length} due` : 'sab current'}
+               </StatusTag>}
+               style={{ marginBottom: 12 }}>
+          <p style={{ fontSize: 11.5, color: 'var(--text-2)', lineHeight: 1.6,
+                      margin: '0 0 12px' }}>
+            Har agent apne interval par khud chalta hai — loop har cycle me
+            {' '}<b>{schedule.max_per_cycle}</b> tak chalata hai, sabse zyada
+            late wale pehle. Run button sirf haath se dhakka dene ke liye hai,
+            uspar kuch nirbhar nahi.
+          </p>
+          <KeyValues rows={[
+            ['Cycles chale', fmtInt(schedule.cycles)],
+            ['Agent runs', fmtInt(schedule.runs)],
+            ['Abhi due', schedule.due_now.length ? schedule.due_now.map(pretty).join(', ') : 'koi nahi'],
+            ['Pichhli baar chale', (schedule.last_agents || []).map(pretty).join(', ') || '—'],
+            ['Analysts current', schedule.analysts_current ? 'haan — synthesis chal sakta hai' : 'nahi — synthesis ruka hai'],
+          ]} />
+        </Panel>
+      )}
+
       <Panel title={`Analysts (${analysts.length})`}
              right={<span className="muted" style={{ fontSize: 11 }}>
                Har 20 second refresh
@@ -226,6 +267,7 @@ export default function Agents() {
           {analysts.map(([name, v]) => (
             <AgentCard key={name} name={name} view={v}
                        stat={status.agents?.[name]}
+                       sched={(schedule?.agents || []).find((a) => a.agent === name)}
                        busy={busy === name}
                        onRun={() => runAgent(name)} />
           ))}
@@ -255,7 +297,7 @@ function PageHead({ onReload, onSynthesis, busy }) {
   )
 }
 
-function AgentCard({ name, view, stat, busy, onRun }) {
+function AgentCard({ name, view, stat, sched, busy, onRun }) {
   const tone = VIEW_TONE[view.view] || 'muted'
   const confidence = Number(view.confidence ?? 0)
   const unhealthy = stat && stat.last_error
@@ -276,7 +318,7 @@ function AgentCard({ name, view, stat, busy, onRun }) {
         <span className="agent-conf">confidence {fmt(confidence)}</span>
         {view.risk_flag
           ? <StatusTag tone="warn" icon="alert">risk</StatusTag>
-          : <span className="agent-age">{neverRun ? 'kabhi chala nahi' : 'ok'}</span>}
+          : <span className="agent-age">{scheduleNote(sched, neverRun)}</span>}
       </div>
 
       <p className="agent-why">{view.reasoning || 'Abhi koi raay nahi.'}</p>
@@ -290,6 +332,17 @@ function AgentCard({ name, view, stat, busy, onRun }) {
       </button>
     </div>
   )
+}
+
+/* What the card says instead of a bare "never run": when this agent is
+   next due, so a quiet card reads as "waiting" rather than "broken". */
+function scheduleNote(sched, neverRun) {
+  if (!sched) return neverRun ? 'kabhi chala nahi' : 'ok'
+  if (!sched.window_open) return `${sched.window} — abhi band`
+  if (sched.due_now) return 'due'
+  if (sched.overdue_seconds == null) return 'kabhi chala nahi'
+  const mins = Math.max(0, Math.round(-sched.overdue_seconds / 60))
+  return mins ? `${mins} min me` : 'abhi'
 }
 
 function feedTone(feed) {

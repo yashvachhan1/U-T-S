@@ -55,6 +55,8 @@ class CryptoRiskAgent(Agent):
             prompt_version="1.0",
             max_tokens=500,
             freshness_seconds=1800,
+            interval_seconds=1800,
+            window="always",
         ))
 
     async def gather(self) -> str:

@@ -72,6 +72,8 @@ class EarningsAgent(Agent):
             max_tokens=700,
             # Results land in bursts and stay relevant for the session.
             freshness_seconds=3600,
+            interval_seconds=3600,
+            window="market_hours",
         ))
         self.max_items = max_items
         self.scan_limit = scan_limit

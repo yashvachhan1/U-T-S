@@ -230,6 +230,22 @@ async def agents_views() -> dict:
     }
 
 
+@router.get("/agents/schedule")
+async def agents_schedule() -> dict:
+    """When each agent is due, and whether its window is open.
+
+    Every agent's doc states a frequency; this is what acts on it. The
+    Run button stays for a manual nudge, but nothing depends on it.
+    """
+    return agents.scheduler.status()
+
+
+@router.post("/agents/schedule/run")
+async def agents_schedule_run(limit: int = 3) -> dict:
+    """Run whichever agents are due right now."""
+    return await agents.scheduler.run_due(limit=limit)
+
+
 @router.get("/agents/review")
 async def agents_review() -> dict:
     """The review pair's latest output, plus the computed book shape.

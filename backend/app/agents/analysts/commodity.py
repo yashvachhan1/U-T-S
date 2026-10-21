@@ -72,6 +72,8 @@ class CommodityAgent(Agent):
             prompt_version="1.0",
             max_tokens=600,
             freshness_seconds=1800,
+            interval_seconds=1800,
+            window="always",
         ))
 
     def _usdinr_change(self) -> float | None:

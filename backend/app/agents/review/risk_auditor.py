@@ -94,6 +94,8 @@ class RiskAuditorAgent(Agent):
             max_tokens=900,
             # A weekly audit stays current for a week.
             freshness_seconds=7 * 86_400,
+            interval_seconds=604800,
+            window="weekly",
         ))
         self.lookback_days = lookback_days
 

@@ -108,11 +108,38 @@ GROQ_API_KEYS=key1,key2,key3
 Pool automatically rotate karta hai, aur rate-limited key ko thodi der ke
 liye **park** kar deta hai — ek agent ka rate limit doosre ko nahi chhuyega.
 
+### Agents khud chalte hain — button dabane ki zaroorat nahi
+
+Har agent ka apna interval aur window hai, aur loop har cycle me **3 tak**
+chalata hai (sabse zyada late wale pehle):
+
+| Window | Kab chalta hai | Kaunse agents |
+|---|---|---|
+| `market_hours` | sirf session ke dauraan | India News, Index Composition, Industry, Sector Rotation, Currency, Earnings, synthesis pair |
+| `always` | 24 ghante | Asia, US Markets, Commodity, Crypto, Global Macro, Power Policy |
+| `after_close` | 16:00 ke baad, weekday | Post-Trade Review |
+| `weekly` | Sunday | Risk Auditor |
+
+Dashboard par **Run** button sirf haath se dhakka dene ke liye hai — uspar
+kuch nirbhar nahi.
+
+Teen cheezein jaan-boojhkar aisi hain:
+
+- **Ek cycle me 3 hi** — loop har 15 second chalta hai; sab ek saath
+  chalane se free Groq tier minute bhar me khatam ho jaata aur baaki
+  rate-limit me dab jaate.
+- **Synthesis analysts ke baad** — wo unka stored output padhta hai,
+  saath me chalane se use pichhle cycle ki raay milti.
+- **Last-run store se aata hai**, memory se nahi — restart par sab dobara
+  fire nahi hote.
+
 ### Bina key ke kya hoga
 
-System **chalega**. Har agent har baar `neutral` dega, `size_multiplier`
-0.5 par rahega (kyunki Red Team kabhi challenge nahi karega), aur trades
-ML + rules se honge.
+Scheduler **kuch nahi chalayega** — jaan-boojhkar. Warna har 15 minute me
+pandrah khali `neutral` rows store me bhar jaatin aur asli wale dab jaate.
+
+System phir bhi **chalega**: `size_multiplier` 0.5 par rahega (kyunki Red
+Team kabhi challenge nahi karega), aur trades ML + rules se honge.
 
 Matlab: forward test chalega, par **agent layer ka koi data nahi banega**.
 Phase 7 ka ek pura sawaal — "kaunsa agent kaam ka hai" — bina jawab reh
@@ -328,7 +355,7 @@ banata hai aur risk engine faisla karta hai.
 | Kab | Kya |
 |---|---|
 | 09:00 | `start.bat`, Upstox login, feed start, loop start, **scanner enable** |
-| 09:15 | **Agents** page — size multiplier aur stance dekh lein |
+| 09:15 | **Agents** page — size multiplier aur stance dekh lein (agents khud chal rahe honge) |
 | Din me | kuch nahi. Ye point hai. |
 | 15:30 | **Execution** page — koi unprotected position to nahi? |
 
