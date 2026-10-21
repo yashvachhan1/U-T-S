@@ -24,7 +24,8 @@ agent, kya risk limits, aur code kaise structure hoga.
 | 9 | [09-development.md](09-development.md) | Step-wise development process, code standards |
 | 10 | [10-testing.md](10-testing.md) | Testing — unit se live tak |
 | 11 | [11-database.md](11-database.md) | Database stack — benchmark ke saath |
-| 12 | [agents/](agents/README.md) | Har agent ki apni detail file |
+| 12 | [**12-paper-run.md**](12-paper-run.md) | **Paper run shuru karne ki step-by-step guide** |
+| 13 | [agents/](agents/README.md) | Har agent ki apni detail file |
 
 ---
 

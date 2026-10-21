@@ -13,6 +13,7 @@ from ..collectors import constituents
 from .. import decision
 from .. import execution
 from .. import forward
+from .. import preflight
 from ..risk import killswitch
 from ..risk import state as risk_state
 from ..store import audit
@@ -472,6 +473,19 @@ async def audit_verify() -> dict:
 # ==========================================================================
 # Phase 7: the paper forward test
 # ==========================================================================
+@router.get("/preflight")
+async def preflight_check(network: bool = False) -> dict:
+    """Is this install ready to start the paper run?
+
+    Shares its checks with `tools/preflight.py`, so the terminal and the
+    dashboard cannot disagree about what is outstanding.
+    """
+    sections = preflight.sections()
+    if network:
+        sections.append(await preflight.check_network())
+    return preflight.as_dict(sections)
+
+
 @router.get("/forward/report")
 async def forward_report(limit: int = 1000) -> dict:
     """Everything the forward test has established so far."""

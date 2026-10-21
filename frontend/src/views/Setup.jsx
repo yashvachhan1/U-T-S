@@ -1,6 +1,8 @@
+import { useCallback, useEffect, useState } from 'react'
+import { get } from '../api.js'
 import Icon from '../components/Icon.jsx'
 import { useUI } from '../components/Feedback.jsx'
-import { Note, Panel } from '../components/ui.jsx'
+import { Note, Panel, SkeletonRows, StatusTag } from '../components/ui.jsx'
 
 const ENV_SAMPLE = `UPSTOX_API_KEY=aapka_api_key
 UPSTOX_API_SECRET=aapka_api_secret
@@ -10,6 +12,17 @@ PAPER_TRADING=true`
 export default function Setup({ status }) {
   const { toast } = useUI()
   const redirect = status.redirect_uri || '—'
+  const [pre, setPre] = useState(null)
+  const [checking, setChecking] = useState(false)
+
+  const runPreflight = useCallback(async () => {
+    setChecking(true)
+    try { setPre(await get('/preflight')) }
+    catch (e) { toast(e.message, 'err') }
+    setChecking(false)
+  }, [toast])
+
+  useEffect(() => { runPreflight() }, [runPreflight])
 
   const copy = async () => {
     try {
@@ -20,7 +33,15 @@ export default function Setup({ status }) {
 
   return (
     <>
-      <div className="page-head"><div><h1>Setup</h1><p>Upstox se connect karne ke steps</p></div></div>
+      <div className="page-head">
+        <div><h1>Setup</h1><p>Paper run shuru karne ke liye kya baaki hai</p></div>
+        <div className="spacer" />
+        <button className="btn ghost sm" onClick={runPreflight} disabled={checking}>
+          {checking ? <i className="spin" /> : <Icon name="refresh" />}Dobara check karo
+        </button>
+      </div>
+
+      <Preflight data={pre} />
 
       <Panel className="doc">
         <ol>
@@ -68,6 +89,68 @@ export default function Setup({ status }) {
         </div>
       </Panel>
     </>
+  )
+}
+
+/* The same checks `python tools/preflight.py` runs, so the terminal and
+   this page cannot disagree about what is outstanding. Every failing item
+   carries the exact line that fixes it -- a check that says "this is
+   wrong" without saying what to do is one that gets ignored. */
+function Preflight({ data }) {
+  if (!data) {
+    return <Panel title="Preflight"><SkeletonRows n={4} /></Panel>
+  }
+
+  const blocking = data.blocking || []
+  const warnings = data.warnings || []
+
+  return (
+    <Panel
+      title="Preflight"
+      className="preflight"
+      right={
+        <StatusTag tone={data.ready ? 'good' : 'crit'}
+                   icon={data.ready ? 'check' : 'alert'}>
+          {data.ready ? 'Shuru kar sakte hain'
+            : `${blocking.length} cheez baaki`}
+        </StatusTag>
+      }
+    >
+      {data.ready && (
+        <Note kind="good">
+          Blocking kuch nahi. Feed start karein, phir Execution page par loop
+          chalu karein. {warnings.length > 0
+            && `${warnings.length} optional cheez abhi bhi baaki hai — niche dekh lein.`}
+        </Note>
+      )}
+
+      {(data.sections || []).map((section) => (
+        <div className="pf-section" key={section.title}>
+          <div className="pf-title">{section.title}</div>
+          {section.checks.map((c) => (
+            <div className={'pf-row ' + (c.ok ? 'ok' : c.blocking ? 'bad' : 'warn')}
+                 key={c.name}>
+              <Icon name={c.ok ? 'check' : 'alert'} />
+              <div className="pf-body">
+                <div className="pf-name">
+                  {c.name}
+                  {!c.ok && !c.blocking && <em> (optional)</em>}
+                </div>
+                {c.detail && <div className="pf-detail">{c.detail}</div>}
+                {!c.ok && c.note && <div className="pf-note">{c.note}</div>}
+                {!c.ok && c.fix && <div className="pf-fix">{c.fix}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <Note kind="">
+        Poora guide: <code className="inline">docs/12-paper-run.md</code>.
+        Terminal me <code className="inline">python tools/preflight.py</code>
+        {' '}se bhi yahi check chalta hai.
+      </Note>
+    </Panel>
   )
 }
 
