@@ -602,6 +602,32 @@ async def forward_baseline(body: BaselineBody) -> dict:
                                     label=body.label)
 
 
+class ModeBody(BaseModel):
+    mode: str
+
+
+@router.post("/forward/mode")
+async def forward_set_mode(body: ModeBody) -> dict:
+    """Pick what the forward test is being asked to establish.
+
+    "system" -- does the machinery work: runs daily, orders fill, every
+    position gets a stop, books agree. The backtest comparison is skipped,
+    because matching a strategy that loses money is not a pass.
+
+    "strategy" -- does the strategy survive outside its fitted data. Then
+    the comparison is the whole point.
+    """
+    try:
+        return {"mode": forward.compare.set_mode(body.mode)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/forward/mode")
+async def forward_get_mode() -> dict:
+    return {"mode": forward.compare.mode(), "modes": list(forward.compare.MODES)}
+
+
 @router.get("/forward/baseline")
 async def forward_baseline_get() -> dict:
     return forward.compare.baseline() or {"registered": False}

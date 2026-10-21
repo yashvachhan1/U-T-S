@@ -109,16 +109,31 @@ def test_a_key_set_through_the_pool_variable_counts(monkeypatch):
 # --------------------------------------------------------------------------
 # Forward test prerequisites
 # --------------------------------------------------------------------------
-def test_a_missing_baseline_is_blocking(clean_db):
+def test_a_missing_baseline_blocks_a_strategy_run(clean_db):
     """Without one there is nothing for the paper run to be compared to."""
+    from app.forward import compare
+
+    compare.set_mode("strategy")
     check = find(preflight.check_forward(), "backtest baseline registered")
     assert check.ok is False
     assert check.blocking is True
 
 
+def test_a_missing_baseline_is_fine_for_a_system_run(clean_db):
+    """A system test never compares against one, so demanding it would
+    block a run for failing to prepare something it will not use."""
+    from app.forward import compare
+
+    compare.set_mode("system")
+    check = find(preflight.check_forward(), "backtest baseline registered")
+    assert check.ok is True
+    assert "zaroori nahi" in check.detail
+
+
 def test_a_registered_baseline_passes(clean_db):
     from app.forward import compare
 
+    compare.set_mode("strategy")
     compare.register({"total_return_pct": 12.0, "max_drawdown_pct": 5.0,
                       "win_rate_pct": 55.0, "trades": 90}, label="v1")
     check = find(preflight.check_forward(), "backtest baseline registered")

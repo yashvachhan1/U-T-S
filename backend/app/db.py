@@ -72,6 +72,14 @@ def _migrate(c: sqlite3.Connection) -> None:
                   "trigger_price REAL NOT NULL DEFAULT 0")
         c.commit()
 
+    # forward_baseline gained a mode: is the forward test proving the
+    # system or the strategy?
+    cols = {r[1] for r in c.execute("PRAGMA table_info(forward_baseline)")}
+    if cols and "mode" not in cols:
+        c.execute("ALTER TABLE forward_baseline ADD COLUMN "
+                  "mode TEXT NOT NULL DEFAULT 'strategy'")
+        c.commit()
+
 
 def conn() -> sqlite3.Connection:
     c = getattr(_local, "conn", None)

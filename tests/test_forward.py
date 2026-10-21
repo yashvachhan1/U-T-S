@@ -341,6 +341,17 @@ BACKTEST = {"total_return_pct": 20.0, "max_drawdown_pct": 6.0,
             "win_rate_pct": 55.0, "trades": 100}
 
 
+@pytest.fixture
+def strategy_mode(clean_db):
+    """The comparison only runs when the question is about the strategy.
+
+    The default is system mode, where the comparison is deliberately
+    skipped -- so these tests have to say which question they are asking.
+    """
+    compare.set_mode("strategy")
+    return clean_db
+
+
 def paper(**kw):
     base = {"sessions": 45, "total_return_pct": 18.0, "max_drawdown_pct": 6.5,
             "win_rate_pct": 53.0, "trades": 95}
@@ -348,14 +359,14 @@ def paper(**kw):
     return base
 
 
-def test_no_baseline_means_no_comparison(clean_db):
+def test_no_baseline_means_no_comparison(strategy_mode):
     """A comparison against a baseline nobody chose is worse than none."""
     out = compare.compare(paper())
     assert out["ready"] is False
     assert "baseline" in out["note"]
 
 
-def test_a_close_match_reports_no_findings(clean_db):
+def test_a_close_match_reports_no_findings(strategy_mode):
     compare.register(BACKTEST, label="v1")
     out = compare.compare(paper())
     assert out["ready"] is True
@@ -363,7 +374,7 @@ def test_a_close_match_reports_no_findings(clean_db):
     assert "sahi sabit nahi hoti" in out["verdict"]
 
 
-def test_a_much_deeper_drawdown_is_critical(clean_db):
+def test_a_much_deeper_drawdown_is_critical(strategy_mode):
     """Sizing errors scale with capital, so this one stops the process."""
     compare.register(BACKTEST)
     out = compare.compare(paper(max_drawdown_pct=15.0))
@@ -372,20 +383,20 @@ def test_a_much_deeper_drawdown_is_critical(clean_db):
     assert "Rukein" in out["verdict"]
 
 
-def test_much_lower_returns_are_flagged(clean_db):
+def test_much_lower_returns_are_flagged(strategy_mode):
     compare.register(BACKTEST)
     out = compare.compare(paper(total_return_pct=5.0))
     assert any(f["check"] == "returns" for f in out["findings"])
 
 
-def test_a_good_win_rate_with_bad_returns_points_at_the_exits(clean_db):
+def test_a_good_win_rate_with_bad_returns_points_at_the_exits(strategy_mode):
     """Entries fine, exits not -- a different fix from a bad entry filter."""
     compare.register(BACKTEST)
     out = compare.compare(paper(total_return_pct=5.0, win_rate_pct=54.0))
     assert any(f["check"] == "exits" for f in out["findings"])
 
 
-def test_far_fewer_trades_is_a_warning_not_a_failure(clean_db):
+def test_far_fewer_trades_is_a_warning_not_a_failure(strategy_mode):
     """Often correct -- the backtest had no blackout list or edge test --
     but then the two are not measuring the same strategy."""
     compare.register(BACKTEST)
@@ -480,3 +491,138 @@ def test_the_text_report_renders_with_data(clean_db):
     assert "sessions" in text
     assert "VERSUS BACKTEST" in text
     assert "GO-LIVE CHECKLIST" in text
+
+
+# ==========================================================================
+# Which question is the forward test answering?
+# ==========================================================================
+def test_system_mode_skips_the_backtest_comparison(clean_db):
+    """Matching a strategy that loses money is not a pass, and missing it
+    is not a fault of the machinery being tested."""
+    compare.register(BACKTEST, label="v1")
+    compare.set_mode("system")
+
+    out = compare.compare(paper())
+    assert out["skipped"] is True
+    assert out["mode"] == "system"
+    assert "machinery" in out["note"]
+
+
+def test_strategy_mode_still_compares(clean_db):
+    compare.register(BACKTEST, label="v1")
+    compare.set_mode("strategy")
+
+    out = compare.compare(paper(max_drawdown_pct=15.0))
+    assert out["ready"] is True
+    assert out["worst_severity"] == "critical"
+
+
+def test_an_unknown_mode_is_refused(clean_db):
+    with pytest.raises(ValueError):
+        compare.set_mode("vibes")
+
+
+def test_the_mode_survives_registering_a_baseline(clean_db):
+    """Registering a backtest should not silently change the question."""
+    compare.set_mode("system")
+    compare.register(BACKTEST, label="v1")
+    assert compare.mode() == "system"
+
+
+def test_the_mode_can_be_set_before_any_baseline(clean_db):
+    """A system run never registers one, so this must not require it."""
+    assert compare.set_mode("system") == "system"
+    assert compare.mode() == "system"
+    assert compare.baseline() is None
+
+
+def test_system_mode_asks_about_the_machinery(clean_db):
+    """Different question, different checklist."""
+    compare.set_mode("system")
+    journal.open_session(1_000_000)
+    journal.close_session(realised_pnl=0, trades=0, wins=0, losses=0,
+                          orders_sent=0, orders_rejected=0)
+
+    names = {i["check"] for i in report.checklist()["items"]}
+    assert "system_actually_traded" in names
+    assert "loop_ran_every_session" in names
+    assert "matches_backtest" not in names
+
+
+def test_strategy_mode_asks_about_the_strategy(clean_db):
+    compare.set_mode("strategy")
+    journal.open_session(1_000_000)
+    journal.close_session(realised_pnl=0, trades=0, wins=0, losses=0,
+                          orders_sent=0, orders_rejected=0)
+
+    names = {i["check"] for i in report.checklist()["items"]}
+    assert "matches_backtest" in names
+    assert "no_agent_costing_money" in names
+    assert "system_actually_traded" not in names
+
+
+def test_a_system_run_with_no_trades_has_proved_little(clean_db):
+    """The order path, stop placement and reconciliation are only
+    exercised by actual trades."""
+    compare.set_mode("system")
+    journal.open_session(1_000_000)
+    journal.close_session(realised_pnl=0, trades=0, wins=0, losses=0,
+                          orders_sent=0, orders_rejected=0)
+
+    item = next(i for i in report.checklist()["items"]
+                if i["check"] == "system_actually_traded")
+    assert item["passed"] is False
+    assert item["blocking"] is True
+
+
+def test_a_system_run_that_traded_passes_that_check(clean_db):
+    compare.set_mode("system")
+    journal.open_session(1_000_000)
+    journal.close_session(realised_pnl=500, trades=4, wins=3, losses=1,
+                          orders_sent=9, orders_rejected=0)
+
+    item = next(i for i in report.checklist()["items"]
+                if i["check"] == "system_actually_traded")
+    assert item["passed"] is True
+
+
+def test_an_order_left_hanging_is_a_system_failure(clean_db):
+    """An order stuck live for days means the poll stopped watching it."""
+    from app.execution import tracker
+
+    compare.set_mode("system")
+    order = tracker.create(tag="t", instrument_key="NSE_EQ|X", symbol="X",
+                           side="BUY", quantity=1, role="entry")
+    tracker.update(order, status="open")
+
+    item = next(i for i in report.checklist()["items"]
+                if i["check"] == "no_orders_left_hanging")
+    assert item["passed"] is False
+
+
+def test_a_working_stop_is_not_an_order_left_hanging(clean_db):
+    """A stop is supposed to sit there all day."""
+    from app.execution import tracker
+
+    compare.set_mode("system")
+    entry = tracker.create(tag="e", instrument_key="NSE_EQ|X", symbol="X",
+                           side="BUY", quantity=1, role="entry")
+    tracker.update(entry, status="complete", filled_quantity=1)
+    stop = tracker.create(tag="s", instrument_key="NSE_EQ|X", symbol="X",
+                          side="SELL", quantity=1, role="stop", parent_id=entry)
+    tracker.update(stop, status="open")
+
+    item = next(i for i in report.checklist()["items"]
+                if i["check"] == "no_orders_left_hanging")
+    assert item["passed"] is True
+
+
+def test_the_report_says_which_question_it_answers(clean_db):
+    compare.set_mode("system")
+    journal.open_session(1_000_000)
+    journal.heartbeat(equity=1_000_000)
+    journal.close_session(realised_pnl=0, trades=1, wins=1, losses=0,
+                          orders_sent=2, orders_rejected=0)
+
+    text = report.text()
+    assert "system mode" in text

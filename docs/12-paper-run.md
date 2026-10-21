@@ -174,7 +174,47 @@ chalein.
 
 ---
 
-## Step 5 — Backtest baseline register karein
+## Step 5 — Mode chunein: system ya strategy
+
+Forward test **do alag sawaal** ka jawab de sakta hai, aur dono ko mila dene
+se report dono ke baare me galat ho jaati hai.
+
+| Mode | Sawaal | Backtest se compare? |
+|---|---|---|
+| **system** | Machinery kaam karti hai? Roz chalti hai, order fill hote hain, har position par stop lagta hai, books match karte hain | ❌ skip |
+| **strategy** | Ye strategy apne fitted data ke bahar bhi chalti hai? | ✅ yahi pura point hai |
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/forward/mode ^
+  -H "Content-Type: application/json" -d "{\"mode\":\"system\"}"
+```
+
+### Pehli baar? **system** chunein
+
+Wajah seedhi hai: jab tak machinery sabit na ho, strategy ka result padhne
+ka matlab hi nahi. Agar roz system crash ho raha hai, ya stop lag hi nahi
+raha, to P&L kisi strategy ke baare me kuch nahi batata.
+
+Aur ek baar machinery par bharosa ho gaya, to **agli strategy usi machinery
+par chadh jayegi** — wo kaam dobara nahi karna padega.
+
+System mode me checklist alag cheezein dekhti hai:
+
+| Check | Kya poochta hai |
+|---|---|
+| `loop_ran_every_session` | Loop sach me roz chala, ya ek baar start karke bhool gaye? |
+| `system_actually_traded` | Zero trades matlab order path kabhi chala hi nahi — kuch sabit nahi hua |
+| `no_orders_left_hanging` | Koi order dino se live padi to poll usse dekhna band kar chuka hai |
+| `every_position_had_a_stop` | Hamesha khali rehna chahiye |
+| `books_reconciled` | Broker se kabhi mismatch hua? |
+| `agents_producing_views` | Agents chal rahe hain (coverage, accuracy nahi) |
+
+> **Dhyan dein:** system mode me bhi P&L record hota hai — bas usse **judge
+> nahi** kiya jaata. Paisa kaunsi strategy banati hai, wo agla phase hai.
+
+---
+
+## Step 6 — Backtest baseline (sirf strategy mode me)
 
 Paper run **kis se compare hoga**? Ye decide kiye bina forward test ka
 aadha matlab chala jaata hai.
@@ -201,7 +241,7 @@ wahi parameters, wahi period.
 
 ---
 
-## Step 6 — Chalu karein
+## Step 7 — Chalu karein
 
 ```bash
 start.bat
@@ -221,7 +261,7 @@ Loop chalte hi forward journal apne aap likhna shuru kar deta hai.
 
 ---
 
-## Step 7 — Scanner chalu karein
+## Step 8 — Scanner chalu karein
 
 > **Ye step chhoda to paper run do mahine chalega aur zero trade karega.**
 

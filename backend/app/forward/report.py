@@ -36,6 +36,7 @@ def collect(limit: int = 1000) -> dict[str, Any]:
     paper = journal.summary(sessions)
     return {
         "at": now_ist().isoformat(timespec="seconds"),
+        "mode": compare.mode(),
         "paper": paper,
         "versus_backtest": compare.compare(paper),
         "agents": attribution.report(limit),
@@ -113,23 +114,29 @@ def checklist(paper: dict[str, Any] | None = None) -> dict[str, Any]:
     check("audit_log_intact", chain.get("intact", False),
           f"{chain.get('rows', 0)} rows, chain {'theek' if chain.get('intact') else 'TOOTI HUI'}")
 
-    # Paper close enough to the backtest.
-    versus = compare.compare(paper)
-    if versus.get("ready"):
-        check("matches_backtest", versus["worst_severity"] in ("none", "warning"),
-              versus["verdict"])
-    else:
-        check("matches_backtest", False, versus.get("note", "compare nahi ho saka"))
+    # The remaining items depend on what the run is being asked to prove.
+    current_mode = compare.mode()
 
-    # Agents earning their place.
-    agent_report = attribution.report()
-    if agent_report.get("ready"):
-        costly = agent_report["summary"]["costs_money"]
-        check("no_agent_costing_money", not costly,
-              f"ye agents trades ko bigaad rahe hain: {', '.join(costly)}"
-              if costly else "koi agent nuksan nahi kar raha")
+    if current_mode == "strategy":
+        versus = compare.compare(paper)
+        if versus.get("ready"):
+            check("matches_backtest",
+                  versus["worst_severity"] in ("none", "warning"),
+                  versus["verdict"])
+        else:
+            check("matches_backtest", False,
+                  versus.get("note", "compare nahi ho saka"))
+
+        agent_report = attribution.report()
+        if agent_report.get("ready"):
+            costly = agent_report["summary"]["costs_money"]
+            check("no_agent_costing_money", not costly,
+                  f"ye agents trades ko bigaad rahe hain: {', '.join(costly)}"
+                  if costly else "koi agent nuksan nahi kar raha")
+        else:
+            check("no_agent_costing_money", False, agent_report.get("note", ""))
     else:
-        check("no_agent_costing_money", False, agent_report.get("note", ""))
+        _system_checks(check, paper)
 
     blocking_failed = [i for i in items if i["blocking"] and not i["passed"]]
     return {
@@ -149,6 +156,68 @@ def checklist(paper: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
+def _system_checks(check, paper: dict[str, Any]) -> None:
+    """What a system test has to establish.
+
+    Not whether the strategy made money -- whether the machinery did its
+    job every day. A run that loses money while every position carried a
+    stop, the books always agreed and nothing crashed has passed this,
+    and that is a real result: the next strategy can be trusted to the
+    same machinery.
+    """
+    from ..execution import loop, tracker
+    from ..store import agent_outputs
+
+    # Did the loop actually run, or did someone start it once and forget?
+    sessions = paper.get("sessions", 0)
+    beats = _total_heartbeats()
+    expected = sessions * 60          # ~15s cycles, generously under-counted
+    check("loop_ran_every_session", sessions > 0 and beats >= expected,
+          f"{beats:,} heartbeats across {sessions} sessions"
+          if sessions else "koi session nahi")
+
+    # Every order the system sent reached a terminal state. Orders stuck
+    # live for days mean the poll stopped looking at them.
+    stuck = [o for o in tracker.live_orders() if o["role"] != "stop"]
+    check("no_orders_left_hanging", not stuck,
+          f"{len(stuck)} order abhi tak live padi hain" if stuck
+          else "koi order atki hui nahi")
+
+    # The agents ran. Coverage, not accuracy -- accuracy needs hundreds of
+    # trades and this mode does not promise them.
+    from .. import agents as agent_pkg
+
+    names = [n for n in agent_pkg.registry.names()]
+    produced = [n for n in names if agent_outputs.latest(n, 7 * 86_400)]
+    check("agents_producing_views", len(produced) >= len(names) // 2,
+          f"{len(produced)} of {len(names)} agents ne pichhle hafte kuch kaha",
+          blocking=False)
+
+    # A system test with no trades has tested very little of the system.
+    check("system_actually_traded", paper.get("trades", 0) > 0,
+          f"{paper.get('trades', 0)} trades -- order path, stop placement "
+          f"aur reconciliation inhi se test hote hain"
+          if paper.get("trades") else
+          "zero trades -- execution path kabhi chala hi nahi, to uske baare "
+          "me kuch sabit nahi hua")
+
+    # The loop survived. Errors are counted per process, so this is a
+    # weak signal after a restart -- hence non-blocking.
+    stats = loop.status()
+    check("loop_without_errors", stats.get("errors", 0) == 0,
+          f"{stats.get('errors', 0)} loop errors"
+          + (f" -- last: {stats.get('last_error')}" if stats.get("last_error") else ""),
+          blocking=False)
+
+
+def _total_heartbeats() -> int:
+    from .. import db
+
+    journal.ensure_schema()
+    rows = db.query("SELECT SUM(heartbeats) AS n FROM forward_sessions")
+    return int((rows[0]["n"] if rows and rows[0]["n"] else 0))
+
+
 def text(data: dict[str, Any] | None = None) -> str:
     """The report as plain text, for a terminal or a daily email."""
     data = data or collect()
@@ -158,7 +227,7 @@ def text(data: dict[str, Any] | None = None) -> str:
     def head(title: str) -> None:
         lines.extend(["", "=" * 66, title, "=" * 66])
 
-    head("PAPER FORWARD TEST")
+    head(f"PAPER FORWARD TEST -- {data.get('mode', 'system')} mode")
     if not paper.get("sessions"):
         lines.append("  Abhi koi session record nahi hua.")
         return "\n".join(lines)

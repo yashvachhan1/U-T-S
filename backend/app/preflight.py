@@ -206,12 +206,21 @@ def check_forward() -> Section:
 
     s = Section("5. Forward test")
 
+    mode = compare.mode()
     base = compare.baseline()
     s.checks.append(Check(
-        "backtest baseline registered", bool(base),
+        "forward test mode", True,
+        "system -- machinery prove kar rahe hain, strategy nahi"
+        if mode == "system"
+        else "strategy -- backtest se compare hoga"))
+
+    # Only a strategy run needs something to be compared against.
+    s.checks.append(Check(
+        "backtest baseline registered", bool(base) or mode == "system",
         f"{base.get('label') or 'unlabelled'}: "
         f"return {base.get('total_return_pct')}%, "
         f"drawdown {base.get('max_drawdown_pct')}%" if base
+        else "system mode me zaroori nahi" if mode == "system"
         else "koi baseline nahi -- paper run kis se compare hoga?",
         fix="Backtest chalayein, fir POST /api/forward/baseline me uska "
             "result bhejein. Sirf ek baseline rakha jaata hai, isliye soch "

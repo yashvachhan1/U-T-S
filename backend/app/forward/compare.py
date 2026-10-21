@@ -42,9 +42,32 @@ CREATE TABLE IF NOT EXISTS forward_baseline (
     id          INTEGER PRIMARY KEY CHECK (id = 1),
     registered_at TEXT NOT NULL,
     label       TEXT NOT NULL DEFAULT '',
-    payload     TEXT NOT NULL
+    payload     TEXT NOT NULL,
+    -- What the forward test is being asked to establish. See MODES.
+    mode        TEXT NOT NULL DEFAULT 'strategy'
 );
 """
+
+# --------------------------------------------------------------------------
+# What is being tested
+#
+# A forward test can answer two different questions, and conflating them
+# produces a report that is wrong about both.
+#
+#   strategy  Does this strategy work outside the data it was fitted on?
+#             The backtest comparison is the whole point, and a result far
+#             from the backtest is the finding.
+#
+#   system    Does the machinery work -- does it run every day, do orders
+#             fill, does every position get a stop, do the books agree?
+#             Here the backtest comparison is noise: matching a strategy
+#             that loses money is not a pass, and missing it is not a
+#             failure. What matters is whether the system did its job.
+#
+# Chosen deliberately, because the honest answer changes with it.
+# --------------------------------------------------------------------------
+MODES = ("system", "strategy")
+DEFAULT_MODE = "system"
 
 # How far apart the two can be before it is called a gap rather than noise.
 # Relative, because 2 points of drawdown means something different at 4%
@@ -84,13 +107,43 @@ def register(result: dict[str, Any], label: str = "") -> dict[str, Any]:
         "sessions": int(_num(result.get("sessions")) or 0),
     }
     db.execute(
-        """INSERT INTO forward_baseline (id, registered_at, label, payload)
-           VALUES (1, ?, ?, ?)
+        """INSERT INTO forward_baseline (id, registered_at, label, payload, mode)
+           VALUES (1, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              registered_at = excluded.registered_at,
              label = excluded.label, payload = excluded.payload""",
-        (now_ist().isoformat(timespec="seconds"), label, json.dumps(payload)))
+        (now_ist().isoformat(timespec="seconds"), label, json.dumps(payload),
+         mode()))
     return baseline()
+
+
+def mode() -> str:
+    """What the forward test is being asked to establish."""
+    ensure_schema()
+    rows = db.query("SELECT mode FROM forward_baseline WHERE id = 1")
+    value = rows[0]["mode"] if rows else DEFAULT_MODE
+    return value if value in MODES else DEFAULT_MODE
+
+
+def set_mode(value: str) -> str:
+    """Switch between proving the system and proving the strategy.
+
+    Stored rather than passed per call, because the whole report has to
+    agree about which question it is answering -- a checklist judged one
+    way and a comparison judged the other is worse than either.
+    """
+    if value not in MODES:
+        raise ValueError(f"mode {value!r} must be one of {MODES}")
+    ensure_schema()
+    rows = db.query("SELECT id FROM forward_baseline WHERE id = 1")
+    if rows:
+        db.execute("UPDATE forward_baseline SET mode = ? WHERE id = 1", (value,))
+    else:
+        db.execute(
+            """INSERT INTO forward_baseline (id, registered_at, label, payload, mode)
+               VALUES (1, ?, '', '{}', ?)""",
+            (now_ist().isoformat(timespec="seconds"), value))
+    return value
 
 
 def baseline() -> dict[str, Any] | None:
@@ -102,8 +155,10 @@ def baseline() -> dict[str, Any] | None:
         payload = json.loads(rows[0]["payload"])
     except (TypeError, ValueError):
         return None
+    if not payload:
+        return None                    # a mode-only row carries no baseline
     return {"registered_at": rows[0]["registered_at"],
-            "label": rows[0]["label"], **payload}
+            "label": rows[0]["label"], "mode": rows[0]["mode"], **payload}
 
 
 def _num(value: Any) -> float | None:
@@ -123,13 +178,25 @@ def _relative_gap(paper: float | None, back: float | None) -> float | None:
 def compare(paper: dict[str, Any], base: dict[str, Any] | None = None
             ) -> dict[str, Any]:
     """Name the gaps. Pure, so the thresholds are testable."""
+    current_mode = mode()
+    if current_mode == "system":
+        # Not a failure -- a different question. Matching a strategy that
+        # loses money would not be a pass, and missing it is not a fault
+        # of the machinery being tested.
+        return {"ready": False, "mode": current_mode, "skipped": True,
+                "note": "System test mode: backtest se compare nahi ho raha. "
+                        "Yahan sawaal ye hai ki machinery kaam karti hai ya "
+                        "nahi, strategy chalti hai ya nahi wo baad ka sawaal "
+                        "hai."}
+
     base = base if base is not None else baseline()
     if not base:
-        return {"ready": False,
+        return {"ready": False, "mode": current_mode,
                 "note": "koi backtest baseline register nahi hai -- "
                         "POST /api/forward/baseline se set karein"}
     if not paper.get("sessions"):
-        return {"ready": False, "note": "abhi koi paper session record nahi hua"}
+        return {"ready": False, "mode": current_mode,
+                "note": "abhi koi paper session record nahi hua"}
 
     findings: list[dict[str, Any]] = []
 
@@ -198,6 +265,7 @@ def compare(paper: dict[str, Any], base: dict[str, Any] | None = None
 
     return {
         "ready": True,
+        "mode": current_mode,
         "baseline": base,
         "paper": {k: paper.get(k) for k in
                   ("sessions", "total_return_pct", "max_drawdown_pct",

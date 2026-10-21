@@ -187,8 +187,24 @@ export default function Forward({ theme }) {
       </Panel>
 
       <div className="cols-2" style={{ marginBottom: 12 }}>
-        <Panel title="Backtest se compare">
-          {!versus.ready ? (
+        <Panel title={versus.skipped ? 'Backtest se compare — skip' : 'Backtest se compare'}
+               right={data.mode && (
+                 <StatusTag tone={data.mode === 'system' ? 'ok' : 'good'} icon="info">
+                   {data.mode} mode
+                 </StatusTag>
+               )}>
+          {versus.skipped ? (
+            <>
+              <Note kind="">{versus.note}</Note>
+              <p style={{ fontSize: 11.5, color: 'var(--text-2)', lineHeight: 1.6,
+                          marginBottom: 0 }}>
+                Strategy ka sawaal baad ka hai. Abhi ye sabit karna hai ki
+                machinery roz chalti hai, order fill hote hain, har position
+                par stop lagta hai, aur books match karte hain. Us par bharosa
+                ho jaye to agli strategy usi machinery par chadhegi.
+              </p>
+            </>
+          ) : !versus.ready ? (
             <Empty icon="flask">{versus.note}</Empty>
           ) : (
             <>
