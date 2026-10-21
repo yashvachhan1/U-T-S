@@ -112,12 +112,15 @@ export function PriceChart({ candles, theme, onHover, markers, height }) {
 }
 
 /* ----------------------------------------------------------- equity curve */
-export function EquityChart({ equity, theme }) {
+/* A class rather than an id: two views draw an equity curve now (backtest
+   and the forward run), and a duplicated id silently breaks whichever one
+   renders second. */
+export function EquityChart({ equity, theme, height = 280 }) {
   const host = useRef(null)
   const api = useRef(null)
 
   useEffect(() => {
-    const chart = createChart(host.current, { ...baseOpts(theme), height: 280 })
+    const chart = createChart(host.current, { ...baseOpts(theme), height })
     const area = chart.addAreaSeries({
       lineColor: cssVar('--accent'),
       topColor: 'rgba(91,140,255,.28)',
@@ -143,5 +146,5 @@ export function EquityChart({ equity, theme }) {
     api.current.chart.timeScale().fitContent()
   }, [equity])
 
-  return <div id="equityChart" ref={host} />
+  return <div className="equity-chart" ref={host} style={{ height }} />
 }

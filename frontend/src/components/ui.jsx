@@ -1,9 +1,10 @@
 /* Small presentational building blocks shared by every view. */
 import Icon from './Icon.jsx'
 
-export function Panel({ title, right, children, bodyClass = '', bodyStyle, className = '' }) {
+export function Panel({ title, right, children, bodyClass = '', bodyStyle,
+                       className = '', style }) {
   return (
-    <div className={'panel ' + className}>
+    <div className={'panel ' + className} style={style}>
       {title && (
         <div className="ph">
           <h3>{title}</h3>

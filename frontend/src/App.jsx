@@ -12,6 +12,7 @@ import Bots from './views/Bots.jsx'
 import Agents from './views/Agents.jsx'
 import Risk from './views/Risk.jsx'
 import Execution from './views/Execution.jsx'
+import Forward from './views/Forward.jsx'
 import Setup from './views/Setup.jsx'
 
 const NAV = [
@@ -30,6 +31,7 @@ const NAV = [
     ['agents', 'Agents', 'brain'],
     ['risk', 'Risk', 'shield'],
     ['execution', 'Execution', 'zap'],
+    ['forward', 'Forward test', 'flask'],
   ]],
 ]
 
@@ -223,6 +225,9 @@ export default function App() {
         </section>
         <section className={'view ' + (view === 'execution' ? 'active' : '')}>
           {view === 'execution' && <Execution />}
+        </section>
+        <section className={'view ' + (view === 'forward' ? 'active' : '')}>
+          {view === 'forward' && <Forward theme={theme} />}
         </section>
         <section className={'view ' + (view === 'help' ? 'active' : '')}>
           {view === 'help' && <Setup status={status} />}
