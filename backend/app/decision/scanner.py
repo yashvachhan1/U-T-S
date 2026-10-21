@@ -290,9 +290,15 @@ async def run(*, execute: bool | None = None) -> dict[str, Any]:
 
 
 def status() -> dict[str, Any]:
+    # Reported with symbols as well as keys: an equity key is an ISIN, and
+    # "INE002A01018" tells a reader nothing about which stock it is.
+    from .engine import symbol_for
+
+    keys = watchlist()
     return {
         "config": _config.as_dict(),
-        "watchlist": watchlist(),
+        "watchlist": keys,
+        "watchlist_symbols": [symbol_for(k) for k in keys],
         "stats": dict(_stats),
         "market_open": is_open("equity"),
         "paper_trading": config.PAPER_TRADING,

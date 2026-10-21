@@ -937,3 +937,32 @@ code.inline { font-family: var(--mono); font-size: 12px; background: var(--bg-2)
   background: var(--warn-soft); border-radius: var(--r-sm);
   padding: 5px 8px; margin-top: 5px; word-break: break-word;
 }
+
+/* ---- scanner switches ---------------------------------------------
+   Drawn as toggles rather than checkboxes because the two are different
+   decisions: one looks for signals, the other spends money on them. The
+   second carries a warning tint when it is on. */
+.scan-switch { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; }
+.scan-switch + .scan-switch { border-top: 1px solid var(--line); }
+.scan-toggle {
+  flex: none; width: 40px; height: 22px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--bg-3);
+  padding: 0; cursor: pointer; position: relative;
+  transition: background-color .18s, border-color .18s;
+}
+.scan-toggle i {
+  position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--text-2);
+  transition: transform .18s, background-color .18s;
+}
+.scan-toggle.on { background: var(--up-soft); border-color: rgba(14,203,129,.45); }
+.scan-toggle.on i { transform: translateX(18px); background: var(--up); }
+.scan-toggle.on.danger { background: var(--warn-soft); border-color: rgba(240,169,59,.5); }
+.scan-toggle.on.danger i { background: var(--warn); }
+.scan-toggle:disabled { opacity: .5; cursor: default; }
+.scan-body { min-width: 0; flex: 1; }
+.scan-title {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px; font-weight: 650; color: var(--text-0);
+}
+.scan-note { font-size: 11.5px; color: var(--text-2); line-height: 1.55; margin-top: 3px; }

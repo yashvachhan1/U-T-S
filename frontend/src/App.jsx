@@ -13,6 +13,7 @@ import Agents from './views/Agents.jsx'
 import Risk from './views/Risk.jsx'
 import Execution from './views/Execution.jsx'
 import Forward from './views/Forward.jsx'
+import Scanner from './views/Scanner.jsx'
 import Setup from './views/Setup.jsx'
 
 const NAV = [
@@ -28,6 +29,7 @@ const NAV = [
   // The automated stack, in the order a decision travels through it:
   // agents form a view, risk decides, execution sends.
   ['Automation', [
+    ['scanner', 'Scanner', 'search'],
     ['agents', 'Agents', 'brain'],
     ['risk', 'Risk', 'shield'],
     ['execution', 'Execution', 'zap'],
@@ -216,6 +218,9 @@ export default function App() {
         </section>
         <section className={'view ' + (view === 'bots' ? 'active' : '')}>
           {view === 'bots' && <Bots strategies={strategies} status={status} />}
+        </section>
+        <section className={'view ' + (view === 'scanner' ? 'active' : '')}>
+          {view === 'scanner' && <Scanner strategies={strategies} />}
         </section>
         <section className={'view ' + (view === 'agents' ? 'active' : '')}>
           {view === 'agents' && <Agents />}

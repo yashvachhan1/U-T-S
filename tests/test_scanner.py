@@ -269,6 +269,15 @@ def test_one_unreadable_instrument_does_not_stop_the_scan(clean, monkeypatch):
     assert "BAD" in scanner.status()["stats"]["last_error"]
 
 
+def test_the_status_reports_symbols_not_just_keys(clean, monkeypatch):
+    """An equity key is an ISIN. "INE002A01018" tells a reader nothing
+    about which stock the scanner is watching."""
+    monkeypatch.setattr(scanner, "watchlist",
+                        lambda: ["NSE_EQ|INE009A01021"])
+    out = scanner.status()
+    assert out["watchlist_symbols"] == ["INFY"]
+
+
 def test_the_watchlist_is_capped(clean, monkeypatch):
     """Caps the damage if someone adds two hundred names."""
     from app import db
