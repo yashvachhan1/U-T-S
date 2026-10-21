@@ -11,6 +11,7 @@ from .. import config, db
 from .. import agents, collectors, markets
 from ..collectors import constituents
 from .. import decision
+from .. import execution
 from ..risk import killswitch
 from ..risk import state as risk_state
 from ..store import audit
@@ -373,6 +374,87 @@ async def risk_evaluate(body: SignalBody, equity: float | None = None) -> dict:
     signal = decision.Signal(**body.model_dump())
     result = await decision.decide(signal, equity=equity)
     return result.as_dict()
+
+
+# ==========================================================================
+# Execution
+# ==========================================================================
+@router.get("/execution/status")
+async def execution_status() -> dict:
+    return {"loop": execution.loop.status(),
+            "executor": execution.executor.status()}
+
+
+@router.get("/execution/orders")
+async def execution_orders(limit: int = 100) -> list[dict]:
+    return execution.tracker.recent(limit)
+
+
+@router.post("/execution/start")
+async def execution_start() -> dict:
+    """Start the background loop: poll, square off, reconcile, sweep."""
+    return await execution.loop.start()
+
+
+@router.post("/execution/stop")
+async def execution_stop() -> dict:
+    """Stop the loop. Orders and positions are left exactly as they are."""
+    return await execution.loop.stop()
+
+
+@router.post("/execution/cycle")
+async def execution_cycle() -> dict:
+    """Run one pass by hand, for testing and for a nudge after a fix."""
+    return await execution.loop.cycle()
+
+
+@router.post("/execution/reconcile")
+async def execution_reconcile(halt_on_mismatch: bool = True) -> dict:
+    """Compare our book with the broker's.
+
+    `halt_on_mismatch=false` reports without tripping the switch -- for
+    looking at a known discrepancy, not for routine use.
+    """
+    return await execution.reconcile.run(halt_on_mismatch=halt_on_mismatch)
+
+
+@router.post("/execution/square-off")
+async def execution_square_off() -> dict:
+    """Close intraday positions. Only acts once the square-off time passes."""
+    return await execution.executor.square_off_intraday()
+
+
+class ExecuteBody(SignalBody):
+    confirm: bool = False
+
+
+@router.post("/trade/execute")
+async def trade_execute(body: ExecuteBody, equity: float | None = None) -> dict:
+    """The whole path: signal -> risk decision -> order, with the stop.
+
+    `confirm` must be true to actually send. The default is a dry run,
+    because the difference between "show me what this would do" and "do it"
+    should never be a typo.
+    """
+    signal = decision.Signal(**body.model_dump(exclude={"confirm"}))
+    result = await decision.decide(signal, equity=equity)
+
+    out: dict = {"decision": result.as_dict(), "sent": False}
+    if not result.approved:
+        return out
+    if not body.confirm:
+        out["note"] = "dry run -- confirm=true bhejein order ke liye"
+        return out
+
+    stop = float(result.proposal.get("stop") or 0)
+    try:
+        out["order"] = await execution.executor.place_entry(
+            result, stop_price=stop, product=body.product,
+            source=signal.source)
+        out["sent"] = True
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return out
 
 
 @router.get("/audit")

@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 from . import collectors
+from . import execution
 from .engine import agent_feed, feed_service, runner
 from .routers.api import router as api_router
 from .upstox import instruments
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
         print("[startup] frontend/dist missing -- 'npm run build' chalayein (ya setup.bat).")
     yield
     await runner.stop_all()
+    await execution.loop.stop()
     await feed_service.stop()
     await collectors.runner.stop()
 

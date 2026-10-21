@@ -491,7 +491,7 @@ aayega — unhe chalane ke liye actual trades chahiye.
 
 ---
 
-## Phase 6 — Decision + Risk engine · 🟡 core ✅, execution baaki
+## Phase 6 — Decision + Risk engine · ✅ poora
 
 | Step | Status |
 |---|---|
@@ -499,8 +499,8 @@ aayega — unhe chalane ke liye actual trades chahiye.
 | 2 | ✅ Kill switches — `risk/killswitch.py`, **drill pass** |
 | 3 | ✅ Decision engine — signal → proposal → decision |
 | 4 | ✅ Audit log — hash-chained, append-only |
-| 5 | ⬜ Execution loop: order bhejna, fill track karna, retry |
-| 6 | ⬜ Reconciliation loop (broker vs hamara record) |
+| 5 | ✅ Execution loop — order, fill tracking, stop placement |
+| 6 | ✅ Reconciliation loop — broker vs hamara record |
 
 🔴 **Gate: kill switches test kiye bina aage nahi** — ✅ **ho gaya**, neeche dekho.
 
@@ -646,8 +646,115 @@ BTST ki asli protection position cap hai, ye nahi. Docstring aur test dono
 me likha hai — kyunki aisa guard jo dikhta protective hai aur hai nahi, wo
 na hone se bura hai.
 
-**Output:** risk engine + kill switches + decision engine + audit log,
-520 test pass, drill 13/13. Execution aur reconciliation loop agla kaam.
+### Execution — do invariant jo kabhi tootne nahi chahiye
+
+```
+1. koi bhi filled position bina stop ke nahi
+2. hamara book = broker ka book
+```
+
+Dono **ordinary** cheezon se tootte hain — API timeout, fill ke beech
+restart, ya kisi ne Upstox app se usi account me trade kar diya. Aur dono
+chup-chaap tootte hain.
+
+| File | Kaam |
+|---|---|
+| `execution/tracker.py` | humne kya **bhejna chaha**, aur uska kya hua |
+| `execution/executor.py` | bhejna, fill dekhna, har fill ko protect karna |
+| `execution/reconcile.py` | hamara book vs broker ka book |
+| `execution/loop.py` | background loop: poll → square-off → reconcile → sweep |
+
+#### Broker ka order book hote hue bhi apna tracker kyun
+
+Broker batata hai "kaunse order hain". Tracker batata hai "humne kya
+**chaha** tha". Yahi do cheezein un cases me alag hoti hain jo matter
+karte hain: wo order jiska response hi nahi aaya, wo stop jo kis entry ka
+hai, wo fill jo restart ke beech aaya.
+
+**Reconciliation inhi dono ki tulna hai.** Dono ka hona zaroori hai.
+
+#### Fill ek *transition* hai, state nahi
+
+Polling me "complete" har cycle par dikhega. State par react karo to wahi
+trade baar-baar book hoga. Isliye `apply_broker_row()` **change** return
+karta hai — `newly_filled`, `became_terminal` — aur har handler usi par
+chalta hai.
+
+Ek aur: jo broker status pehchana nahi, wo order **live** rehta hai. Usse
+"khatam" maan lena matlab aise order ko dekhna band kar dena jo abhi bhi
+fill ho sakta hai.
+
+#### Stop na lag paye to?
+
+Do imaandar option the: turant position band kar do, ya ruk kar shor
+machao. Position band karna khud wahi panic-exit hai jisse ye system
+bachta hai — isliye:
+
+- halt ho jaata hai (naya kuch nahi khulega uske saath)
+- stop **har poll par dobara try** hota hai (transient error common case hai)
+- state loud hai: `/api/execution/status` me `unprotected_positions`
+
+Position ka planned exit price operator ke paas hai. Jo nahi hona chahiye
+wo hai chup-chaap chalte rehna.
+
+#### Reconcile **poll ke baad**, pehle nahi
+
+Loop ka order jaan-boojhkar hai:
+
+```
+poll → (stop lagao) → square-off → reconcile → sweep
+```
+
+Pehle reconcile karte to broker ke fresh fill hamare purane record se
+compare hote aur **mismatch dikhta jo asal me sirf latency hai**. Wo ek
+ordering galti halt ko normal din par fire kara deti — aur jo safety
+mechanism jhooth bolta hai, wo band kar diya jaata hai.
+
+#### Share count me tolerance **zero**
+
+Share count me rounding error jaisi koi cheez hoti hi nahi. Koi bhi fark
+asli disagreement hai.
+
+Galat position list har limit ko **ek hi direction me** galat karti hai:
+jo hold kiya hai wo kam dikhta hai, matlab aur kharidne ki ijaazat zyada
+milti hai.
+
+#### Broker padh hi nahi paye to wo mismatch nahi
+
+Na-padhne-wala account aur na-maanne-wala account alag cheezein hain.
+Network blip par halt karna matlab galat wajah se trading band.
+
+#### Stale order cancel — par stop kabhi nahi
+
+Jo limit order kabhi fill nahi hua, wo ek aisi position hai jo aapko lagta
+hai aapke paas hai. 120 second baad cancel.
+
+**Stop iska exception hai.** Stop ka kaam hi hai din bhar pada rehna —
+usse "purana ho gaya" kehkar cancel karna matlab protection hatana theek
+usi waqt jab abhi tak kuch galat hua hi nahi.
+
+#### Square-off — system ka ek hi automatic close
+
+15:15 par intraday position band. Ye automatic isliye hai kyunki **broker
+khud band karega** — apne time par, apne price par. Us surprise se behtar
+hai ki waqt hum chunein.
+
+#### Drill
+
+```bash
+python tools/execution_drill.py
+```
+
+Paper mode me poora lifecycle, **16/16 pass**: decision → order → stop →
+books match → stop fill → P&L → losing streak → unprotected halt →
+mismatch halt → network blip (halt nahi) → square-off → audit chain.
+
+**Output:** Phase 6 poora. Risk engine, kill switches, decision engine,
+audit log, execution aur reconciliation — 562 test pass, killswitch drill
+13/13, execution drill 16/16.
+
+> Agla kaam Phase 7 hai: **2–3 mahine paper forward-test**. Ye skip karne
+> ka mann karega. Mat karna.
 
 ---
 

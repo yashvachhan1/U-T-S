@@ -118,6 +118,13 @@ NO_ENTRY_FIRST_MINUTES = int(os.getenv("NO_ENTRY_FIRST_MINUTES", "15"))
 SQUARE_OFF_HOUR = int(os.getenv("SQUARE_OFF_HOUR", "15"))
 SQUARE_OFF_MINUTE = int(os.getenv("SQUARE_OFF_MINUTE", "15"))
 
+# ---- execution -----------------------------------------------------------
+# A working limit order past this is cancelled: the price it was sent for no
+# longer exists. Protective stops are exempt -- a stop is meant to sit there
+# all day, and cancelling it for being old removes the protection precisely
+# because nothing has gone wrong yet.
+STALE_ORDER_SECONDS = float(os.getenv("STALE_ORDER_SECONDS", "120"))
+
 # ---- cost model, for the edge test --------------------------------------
 # Same numbers the backtester charges, so a trade the backtest counted as
 # profitable is not one live trading quietly loses on.
