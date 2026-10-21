@@ -171,9 +171,35 @@ def test_ready_is_true_only_when_nothing_blocking_remains(clean_db, monkeypatch)
     compare.register({"total_return_pct": 12.0, "max_drawdown_pct": 5.0,
                       "win_rate_pct": 55.0, "trades": 90}, label="v1")
 
+    # The scanner needs something to look at, or the run would record no
+    # trades at all -- which is why an empty watchlist blocks.
+    from app.decision import scanner
+
+    monkeypatch.setattr(scanner, "watchlist", lambda: ["NSE_EQ|INE009A01021"])
+
     out = preflight.as_dict(preflight.sections())
     assert out["blocking"] == []
     assert out["ready"] is True
+
+
+def test_an_empty_watchlist_blocks(clean_db, monkeypatch):
+    """Without instruments the scan runs and finds nothing, for two
+    months -- the most expensive way to waste the phase."""
+    from app.decision import scanner
+
+    monkeypatch.setattr(scanner, "watchlist", lambda: [])
+    check = find(preflight.check_forward(), "scanner configured")
+    assert check.ok is False
+    assert check.blocking is True
+
+
+def test_a_disabled_scanner_warns_loudly_but_does_not_block(clean_db):
+    """It is a legitimate state for the first day or two, while you watch
+    what the strategy produces before letting it act."""
+    check = find(preflight.check_forward(), "scanner enabled")
+    assert check.ok is False
+    assert check.blocking is False
+    assert "ZERO trade" in check.optional_note
 
 
 def test_the_checks_write_nothing(clean_db, tmp_path):

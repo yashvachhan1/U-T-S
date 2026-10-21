@@ -3,11 +3,12 @@
 One task, a fixed order, and each step isolated from the others. The order
 is not arbitrary:
 
-    1. poll       -- find fills first, so everything after sees them
-    2. stops      -- (inside poll) protect anything newly filled
-    3. square-off -- close intraday positions once the time passes
-    4. reconcile  -- compare the books, now that fills are recorded
-    5. sweep      -- re-check the kill switches against the new numbers
+    1. scan       -- look for signals, so this cycle's poll sees them
+    2. poll       -- find fills, so everything after sees them
+    3. stops      -- (inside poll) protect anything newly filled
+    4. square-off -- close intraday positions once the time passes
+    5. reconcile  -- compare the books, now that fills are recorded
+    6. sweep      -- re-check the kill switches against the new numbers
 
 Reconciling before polling would compare the broker's fresh fills against
 our stale record and report a mismatch that is really just latency. That
@@ -57,6 +58,10 @@ async def cycle(*, reconcile_now: bool = True) -> dict[str, Any]:
     from .. import decision
 
     result: dict[str, Any] = {"at": now_ist().isoformat(timespec="seconds")}
+
+    # Scanning comes first so that anything it sends is picked up by this
+    # same cycle's poll, rather than sitting unwatched for fifteen seconds.
+    result["scan"] = await _step("scan", decision.scanner.run())
 
     result["poll"] = await _step("poll", executor.poll())
 

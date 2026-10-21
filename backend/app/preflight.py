@@ -231,6 +231,32 @@ def check_forward() -> Section:
         f"{sessions} sessions record ho chuke hain" if sessions
         else "abhi koi session nahi -- loop chalte hi shuru ho jayega",
         blocking=False))
+
+    # Without this the run would last two months and record zero trades,
+    # which is the single most expensive way to waste the phase.
+    from .decision import scanner
+
+    cfg = scanner.status()["config"]
+    names = scanner.watchlist()
+    s.checks.append(Check(
+        "scanner configured", bool(names),
+        f"{len(names)} instruments: {', '.join(n.split('|')[-1] for n in names[:4])}"
+        + ("..." if len(names) > 4 else "") if names
+        else "watchlist khali hai -- scanner ko dekhne ke liye kuch chahiye",
+        fix="Chart & Trade page se watchlist me instruments add karein, ya "
+            "POST /api/scanner/config me instruments bhejein"))
+
+    s.checks.append(Check(
+        "scanner enabled", cfg["enabled"],
+        f"strategy {cfg['strategy']} on {cfg['interval']}, "
+        f"auto_execute {'on' if cfg['auto_execute'] else 'off'}"
+        if cfg["enabled"] else "band hai -- koi signal nahi banega",
+        fix='POST /api/scanner/config  {"enabled": true}   '
+            "(restart par dobara karna padega -- jaan-boojhkar)",
+        blocking=False,
+        optional_note="Iske bina paper run do mahine chalega aur ZERO trade "
+                      "karega. Pehle enabled=true se signal dekh lein, "
+                      "bharosa hone par auto_execute=true."))
     return s
 
 

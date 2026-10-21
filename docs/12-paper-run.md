@@ -213,7 +213,7 @@ Phir dashboard par:
 |---|---|---|
 | 1. Upstox Login | upar right | token aata hai |
 | 2. Feed start | Chart & Trade, ya `POST /api/feed/start` | 532 instruments subscribe, constituent lists refresh |
-| 3. Loop start | **Execution** page → "Chalu karo" | poll → stop → square-off → reconcile → sweep, har 15 second |
+| 3. Loop start | **Execution** page → "Chalu karo" | scan → poll → stop → square-off → reconcile → sweep, har 15 second |
 
 Loop chalte hi forward journal apne aap likhna shuru kar deta hai.
 
@@ -221,11 +221,70 @@ Loop chalte hi forward journal apne aap likhna shuru kar deta hai.
 
 ---
 
+## Step 7 — Scanner chalu karein
+
+> **Ye step chhoda to paper run do mahine chalega aur zero trade karega.**
+
+Loop khud se koi signal nahi dhoondta. Scanner wo hissa hai jo watchlist
+par strategy chalata hai aur signal ko decision engine tak pahunchata hai.
+
+### Pehle watchlist
+
+Dashboard → **Chart & Trade** → jo instruments test karne hain unhe
+watchlist me add karein. 10–25 se zyada mat rakhein.
+
+### Phir scanner configure karein
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/scanner/config" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"strategy\":\"ema_crossover\",\"interval\":\"5m\",\"enabled\":true}"
+```
+
+Ab wo signal **dhoondhega par bhejega nahi**. Ek-do din aise chalayein aur
+dekhein ki kya mil raha hai:
+
+```bash
+curl http://127.0.0.1:8000/api/scanner/status
+curl -X POST http://127.0.0.1:8000/api/scanner/run     # ek baar haath se
+```
+
+### Jab bharosa ho jaye, tab execute
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/scanner/config" ^
+  -H "Content-Type: application/json" -d "{\"auto_execute\":true}"
+```
+
+### `enabled` aur `auto_execute` alag kyun hain
+
+Signal **dhoondna** aur us par **act karna** do alag faisle hain. Beech ka
+gap wahi jagah hai jahan aap dekh sakte hain ki strategy kya nikal rahi
+hai, **isse pehle ki wo paisa lagaye**.
+
+### Scanner restart par band ho jaata hai — jaan-boojhkar
+
+Config disk par save nahi hoti. Jo scanner restart jhel jaye, wo ek din
+aise shuru ho jayega kyunki **machine reboot hui thi**. Roz subah ek line
+chalana isse behtar hai.
+
+### Scanner risk engine ko bypass nahi kar sakta
+
+Har signal `decide()` se guzarta hai — sizing, exposure limits, edge test,
+blackout, kill switch. Scanner **order place karta hi nahi**; wo proposal
+banata hai aur risk engine faisla karta hai.
+
+> **Purane Algo Bots** (Bots page) ye raasta use **nahi** karte — wo seedha
+> order bhejte hain. Unme sirf kill switch lagta hai, baaki risk limits
+> nahi. Forward test ke liye scanner use karein, bots nahi.
+
+---
+
 ## Roz ka routine (2 minute)
 
 | Kab | Kya |
 |---|---|
-| 09:00 | `start.bat`, Upstox login, feed start, loop start |
+| 09:00 | `start.bat`, Upstox login, feed start, loop start, **scanner enable** |
 | 09:15 | **Agents** page — size multiplier aur stance dekh lein |
 | Din me | kuch nahi. Ye point hai. |
 | 15:30 | **Execution** page — koi unprotected position to nahi? |
@@ -322,7 +381,8 @@ Jab ye sab sach ho:
 | Sab kuch 0 | `TRADING_CAPITAL` set nahi — engine size karne se mana kar raha hai |
 | Loop chal raha par kuch nahi hota | Market band. Loop out of hours 2 min par chalta hai. |
 | Login kal kaam kar raha tha, aaj nahi | Token roz expire hota hai. Dobara login. |
-| Trades ho hi nahi rahe | Normal. Edge test zyadatar signals reject karta hai — aur karna bhi chahiye. |
+| Trades ho hi nahi rahe | Pehle `GET /api/scanner/status` dekhein — `enabled` false to kuch nahi hoga. Uske baad: normal, edge test zyadatar signals reject karta hai. |
+| Scanner kal chalu tha, aaj band | Config restart par nahi bachti. Jaan-boojhkar. Roz enable karein. |
 
 ---
 

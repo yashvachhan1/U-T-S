@@ -856,8 +856,42 @@ hai: ek agent jo market ulta padh raha hai (`costs_money`), aur ek run jo
 apne backtest se peeche hai par win rate wahi — jo exits ki taraf ishara
 karta hai, entries ki taraf nahi.
 
+### Ek gap jo setup ke baad mila: signal aata kahan se hai?
+
+Phase 7 setup ke baad preflight chalate waqt dikha ki **koi cheez signal
+banati hi nahi thi**. `decide()` tak pahunchne ke do hi raaste the, aur
+dono API routes the jo insaan ko khud call karne padte.
+
+Matlab: paper run do mahine chalta aur **zero trade** record karta.
+
+`decision/scanner.py` ye band karta hai. Wo watchlist par wahi strategy
+code chalata hai jo backtester chalata hai, aur fresh signal ko decision
+engine tak le jaata hai.
+
+| Rule | Kyun |
+|---|---|
+| Order place **nahi** karta | Proposal banata hai; approve sirf risk engine karta hai |
+| Default off | Automatic trading app start hone ka side effect nahi ho sakta |
+| `enabled` ≠ `auto_execute` | Signal dhoondna aur us par act karna do alag faisle hain |
+| Ek candle par ek baar | Signal closed candle ka property hai — loop har 15 second chalta hai |
+| Banne wali candle drop | Jo signal beech me dikhta hai wo close hote-hote gayab ho sakta hai |
+| Restart par band | Jo scanner restart jhel jaye wo ek din **reboot ki wajah se** trade shuru kar dega |
+
+Do aur cheezein isi me mili:
+
+1. **Default strategy key galat thi** (`ema_cross`, registry me
+   `ema_crossover`). Scan apni errors khud nigal jaata hai taaki loop
+   chalta rahe — matlab ye har cycle par **chup-chaap** fail hota. Ab
+   strategy config karte waqt validate hoti hai, scan ke waqt nahi.
+
+2. **Purane Algo Bots risk engine bypass karte hain.** Wo seedha
+   `place_order` call karte hain, isliye sizing, exposure limits, edge
+   test aur blackout unpar lagta hi nahi — sirf kill switch lagta hai
+   (wo order path par hai). Forward test ke liye scanner use karna hai,
+   bots nahi. Ye roadmap me likha hua gap hai, chhupaya nahi gaya.
+
 **Output (setup ka):** roz ka record, per-agent attribution, backtest
-comparison aur self-checking checklist — 597 test pass.
+comparison, self-checking checklist aur signal source — 635 test pass.
 
 > **Asli output abhi baaki hai**, aur wo code se nahi aayega: 2–3 mahine
 > chalana padega. Setup ka matlab hai ki ab wo mahine **naape** jaa rahe

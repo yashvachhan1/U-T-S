@@ -381,6 +381,43 @@ async def risk_evaluate(body: SignalBody, equity: float | None = None) -> dict:
 # ==========================================================================
 # Execution
 # ==========================================================================
+# ==========================================================================
+# Scanner -- where signals come from
+# ==========================================================================
+@router.get("/scanner/status")
+async def scanner_status() -> dict:
+    return decision.scanner.status()
+
+
+class ScannerBody(BaseModel):
+    enabled: bool | None = None
+    auto_execute: bool | None = None
+    strategy: str | None = None
+    params: dict | None = None
+    interval: str | None = None
+    product: str | None = None
+    instruments: list[str] | None = None
+    expected_move_pct: float | None = None
+    probability: float | None = None
+
+
+@router.post("/scanner/config")
+async def scanner_config(body: ScannerBody) -> dict:
+    """Configure the scanner.
+
+    `enabled` and `auto_execute` are separate on purpose: looking for
+    signals and acting on them are different decisions, and the gap
+    between them is where a person gets to look.
+    """
+    return decision.scanner.configure(**body.model_dump(exclude_none=True))
+
+
+@router.post("/scanner/run")
+async def scanner_run(execute: bool = False) -> dict:
+    """Run one scan by hand. Sends nothing unless execute=true."""
+    return await decision.scanner.run(execute=execute)
+
+
 @router.get("/execution/status")
 async def execution_status() -> dict:
     return {"loop": execution.loop.status(),

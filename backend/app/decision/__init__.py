@@ -9,6 +9,7 @@ access and no way to be hurried.
 So this module can be wrong about the world. It cannot be wrong about the
 limits.
 """
+from . import scanner  # noqa: F401
 from .engine import (  # noqa: F401
     Signal,
     agent_multiplier,
@@ -21,4 +22,4 @@ from .engine import (  # noqa: F401
 )
 
 __all__ = ["Signal", "agent_multiplier", "build_book", "decide", "decide_many",
-           "propose", "sector_for", "sweep"]
+           "propose", "scanner", "sector_for", "sweep"]
