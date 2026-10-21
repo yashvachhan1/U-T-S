@@ -24,7 +24,16 @@ INTERVALS: dict[str, tuple[str, int]] = {
 }
 
 # How far back the API will serve for each unit, roughly.
-MAX_LOOKBACK_DAYS = {"minutes": 365, "hours": 365, "days": 3650, "weeks": 3650, "months": 3650}
+# What Upstox will actually serve in one request. Asking for more does not
+# return less -- it fails outright with "Invalid date range (UDAPI1148)",
+# so these clamp the request instead of letting the caller hit a wall.
+#
+# Measured against the live API rather than read off a doc page:
+#   minutes  30d ok, 60d fails
+#   hours    90d ok, 180d fails
+#   days     5 years ok
+MAX_LOOKBACK_DAYS = {"minutes": 30, "hours": 90, "days": 3650,
+                     "weeks": 3650, "months": 3650}
 
 
 def _enc(instrument_key: str) -> str:
