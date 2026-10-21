@@ -283,7 +283,7 @@ async def _tick(state: BotState) -> None:
         await _exit(state, f"SELL signal @ {price}")
 
 
-async def _enter(state: BotState, price: float) -> None:
+async def _enter(state: BotState, price: float, at=None) -> None:
     """Propose an entry. The risk engine decides whether, and how big.
 
     `cfg.quantity` becomes a ceiling rather than the answer: a bot asking
@@ -307,7 +307,7 @@ async def _enter(state: BotState, price: float) -> None:
         probability=0.55,
         note=f"bot {state.run_id} {cfg.strategy}")
 
-    verdict = await decision.decide(signal)
+    verdict = await decision.decide(signal, at=at)
     if not verdict.approved:
         state.last_rejection = "; ".join(verdict.reasons)[:300]
         db.log_bot(state.run_id, "warn",

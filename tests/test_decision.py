@@ -208,22 +208,69 @@ def test_the_book_reflects_the_brokers_positions(clean_db, monkeypatch):
     assert book.positions[0].sector == "IT"
 
 
-def test_several_signals_cannot_each_fill_the_last_slot(
-        clean_db, live_quote, no_positions, monkeypatch):
-    """The easiest limit to breach by accident.
+def many_quotes(monkeypatch, keys):
+    """A healthy tick for each of several instruments."""
+    from app.engine import feed_service
+    from app.upstox.ticks import DepthLevel, Tick
 
-    Five signals evaluated against the same snapshot are each individually
-    fine and collectively a breach, so the book has to grow as approvals
-    land.
+    ticks = {
+        key: Tick(instrument_key=key, ts=int(OPEN_TIME.timestamp() * 1000),
+                  ltp=1500.0, close_price=1480.0, volume=5_000_000,
+                  depth=[DepthLevel(bid_qty=100, bid_price=1499.5,
+                                    ask_qty=100, ask_price=1500.5)])
+        for key in keys
+    }
+    monkeypatch.setattr(feed_service, "_latest", ticks)
+
+
+def test_repeat_signals_on_one_name_do_not_stack(
+        clean_db, live_quote, no_positions, monkeypatch):
+    """Five signals on the same stock are one position, not five.
+
+    Caught by `already_held` rather than by the position limit, which is
+    the stricter of the two: adding to a position is a separate decision
+    from opening one.
     """
-    monkeypatch.setattr(config, "MAX_OPEN_POSITIONS", 2)
-    monkeypatch.setattr(config, "MAX_CORRELATED_POSITIONS", 99)
+    monkeypatch.setattr(config, "MAX_OPEN_POSITIONS", 5)
+    monkeypatch.setattr(config, "MAX_TRADES_PER_DAY", 50)
 
     signals = [Signal(instrument_key=INFY, stop_price=1470.0,
                       expected_move_pct=2.0, probability=0.8, source=f"s{i}")
                for i in range(5)]
-    results = run(decision.decide_many(signals, equity=1_000_000))
-    assert sum(1 for r in results if r.approved) <= 2
+    results = run(decision.decide_many(signals, equity=1_000_000, at=OPEN_TIME))
+
+    assert sum(1 for r in results if r.approved) == 1
+    assert any("already_held" in " ".join(r.reasons) for r in results)
+
+
+def test_several_signals_cannot_each_fill_the_last_slot(
+        clean_db, no_positions, monkeypatch):
+    """The easiest limit to breach by accident.
+
+    Five signals on five different names, evaluated against the same
+    snapshot, are each individually fine and collectively a breach -- so
+    the book has to grow as approvals land.
+
+    Pinned to market hours: without that every signal is refused for being
+    out of session and the assertion passes without testing anything,
+    which is how a limit test quietly stops working after 15:30.
+    """
+    keys = [INFY, "NSE_EQ|INE467B01029", "NSE_EQ|INE040A01034",
+            "NSE_EQ|INE002A01018", "NSE_EQ|INE090A01021"]
+    many_quotes(monkeypatch, keys)
+    monkeypatch.setattr(config, "MAX_OPEN_POSITIONS", 2)
+    monkeypatch.setattr(config, "MAX_CORRELATED_POSITIONS", 99)
+    monkeypatch.setattr(config, "MAX_SECTOR_EXPOSURE_PCT", 100.0)
+    monkeypatch.setattr(config, "MAX_TRADES_PER_DAY", 50)
+
+    signals = [Signal(instrument_key=key, stop_price=1470.0,
+                      expected_move_pct=2.0, probability=0.8, source=f"s{i}")
+               for i, key in enumerate(keys)]
+    results = run(decision.decide_many(signals, equity=1_000_000, at=OPEN_TIME))
+
+    approved = sum(1 for r in results if r.approved)
+    assert approved == 2, [r.reasons for r in results]
+    assert any("max_positions" in " ".join(r.reasons) for r in results)
 
 
 # --------------------------------------------------------------------------

@@ -31,16 +31,26 @@ Pipeline: `synthesis/__init__.py` → `run_pair()` stance banata hai, fir usi
 par Red Team ka hamla. Har failure path **kam size** par girta hai, zyada par
 nahi.
 
-## Review (2)
+## Review (2) — ✅ dono bane hue hain
 
-| # | Agent | Sources | Calls/day | Model |
-|---|---|---|---|---|
-| 15 | [Post-Trade Review](15-post-trade-review.md) | 4 | 1 | strong |
-| 16 | [Risk Auditor](16-risk-auditor.md) | 4 | 0.2 | strong |
+| # | Agent | Sources | Calls/day | Model | Code |
+|---|---|---|---|---|---|
+| 15 | [Post-Trade Review](15-post-trade-review.md) | 4 | 1 | strong | `review/post_trade.py` |
+| 16 | [Risk Auditor](16-risk-auditor.md) | 4 | 0.2 | strong | `review/risk_auditor.py` |
+
+Dono **peeche dekhte hain aur kuch badalte nahi**. Dono ka
+`size_multiplier()` hamesha **1.0** hai — unka `view` bazaar ke baare me
+nahi, **guzre waqt** ke baare me hai. Use sizing me jaane dena matlab
+kal ke result se aaj ka trade chhota kar dena, ek aise raaste se jo kisi
+ne design hi nahi kiya.
+
+Risk Auditor config **padh** sakta hai, **likh nahi** sakta — iske output
+me aisa koi field hai hi nahi jisse koi setting badle. "Nahi karna
+chahiye" ka sabse mazboot roop "kar hi nahi sakta" hota hai.
 
 ---
 
-**Total: 16 agents · 86 source connections** — 14 ✅ (12 analysts + synthesis pair), review pair baaki
+**Total: 16 agents · 86 source connections** — saare 16 ✅
 
 ## Jo saare analysts pe laagu hota hai
 

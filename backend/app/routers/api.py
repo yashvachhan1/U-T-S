@@ -17,6 +17,7 @@ from .. import preflight
 from ..risk import killswitch
 from ..risk import state as risk_state
 from ..store import audit
+from ..store import agent_outputs as agent_outputs_store
 from ..engine import agent_feed
 from ..engine import backtester, feed_service, runner
 from ..store import events as events_store
@@ -212,10 +213,13 @@ async def agents_views() -> dict:
     The synthesis pair is a reading *of* the analysts, so multiplying the
     two together would count the same caution twice.
     """
-    from ..agents.synthesis.chief_strategist import SYNTHESIS_AGENTS
+    # Synthesis is excluded because it is a reading OF the analysts and
+    # would double-count; review because it judges the past, not the
+    # market.
+    from ..agents.schemas import NON_ANALYST_AGENTS
 
     views = agents.registry.current_views()
-    analysts = [v for n, v in views.items() if n not in SYNTHESIS_AGENTS]
+    analysts = [v for n, v in views.items() if n not in NON_ANALYST_AGENTS]
     pair = agents.synthesis.current()
     return {
         "views": {n: v.to_payload() for n, v in views.items()},
@@ -224,6 +228,31 @@ async def agents_views() -> dict:
         # What the risk engine reads: the synthesis pair's verdict.
         "size_multiplier": pair["size_multiplier"],
     }
+
+
+@router.get("/agents/review")
+async def agents_review() -> dict:
+    """The review pair's latest output, plus the computed book shape.
+
+    Advisory only. Neither of these can change a limit or a position; the
+    numbers here are for a person to read.
+    """
+    from ..agents.review import concentration
+    from ..decision.engine import build_book
+
+    out: dict = {}
+    for name in ("post_trade_review", "risk_auditor"):
+        row = agent_outputs_store.latest(name)
+        out[name] = row["payload"] if row else None
+        if row:
+            out[f"{name}_at"] = row["ts"]
+
+    try:
+        positions = (await build_book()).positions
+    except Exception:
+        positions = []
+    out["book_shape"] = concentration.analyse(positions)
+    return out
 
 
 @router.get("/agents/synthesis")

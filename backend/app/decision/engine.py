@@ -214,13 +214,20 @@ def propose(signal: Signal, *, agent_mult: float = 1.0) -> Proposal:
 # The decision
 # --------------------------------------------------------------------------
 async def decide(signal: Signal, *, book: Book | None = None,
-                 equity: float | None = None, audit_it: bool = True) -> Decision:
-    """Signal to decision, recorded either way."""
+                 equity: float | None = None, audit_it: bool = True,
+                 at=None) -> Decision:
+    """Signal to decision, recorded either way.
+
+    `at` is the moment being reasoned about, defaulting to now. It exists
+    because a decision engine that can only reason about "now" cannot be
+    replayed -- and because the session-window checks are otherwise
+    untestable outside market hours.
+    """
     mult, pair = agent_multiplier()
     proposal = propose(signal, agent_mult=mult)
     book = book if book is not None else await build_book(equity=equity)
 
-    decision = evaluate(proposal, book)
+    decision = evaluate(proposal, book, at)
 
     if audit_it:
         audit.record_decision(decision)
@@ -235,7 +242,7 @@ async def decide(signal: Signal, *, book: Book | None = None,
 
 
 async def decide_many(signals: list[Signal], *,
-                      equity: float | None = None) -> list[Decision]:
+                      equity: float | None = None, at=None) -> list[Decision]:
     """Evaluate several signals against one snapshot of the book.
 
     The book is built once and then **updated as approvals accumulate**.
@@ -248,7 +255,7 @@ async def decide_many(signals: list[Signal], *,
     out: list[Decision] = []
 
     for signal in signals:
-        decision = await decide(signal, book=book)
+        decision = await decide(signal, book=book, at=at)
         out.append(decision)
         if decision.approved:
             proposal = decision.proposal

@@ -21,7 +21,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+from datetime import datetime  # noqa: E402
+
 from app import config  # noqa: E402
+from app.clock import IST  # noqa: E402
 from app.engine import runner  # noqa: E402
 from app.execution import tracker  # noqa: E402
 
@@ -31,6 +34,11 @@ def run(coro):
 
 
 INFY = "NSE_EQ|INE009A01021"
+
+# Mid-session on a Friday. Pinned because the entry checks include the
+# market window -- without this the tests only pass while the market
+# happens to be open, which is most of the time they are not run.
+OPEN_TIME = datetime(2026, 10, 16, 11, 0, tzinfo=IST)
 
 
 @pytest.fixture
@@ -66,11 +74,13 @@ def clean(tmp_path, monkeypatch):
     # every entry -- correctly, since sizing and the limit price are both
     # read off the last price. It also means a bot now needs its
     # instrument subscribed on the feed, which it never used to.
-    from app.clock import now_ist
     from app.engine import feed_service
     from app.upstox.ticks import DepthLevel, Tick
 
-    tick = Tick(instrument_key=INFY, ts=int(now_ist().timestamp() * 1000),
+    # Stamped at the pinned decision time: a tick from a different day
+    # reads as a clock mismatch, which the freshness check refuses -- and
+    # refusing it is correct behaviour, just not what these tests are for.
+    tick = Tick(instrument_key=INFY, ts=int(OPEN_TIME.timestamp() * 1000),
                 ltp=1500.0, close_price=1480.0, volume=5_000_000,
                 depth=[DepthLevel(bid_qty=200, bid_price=1499.5,
                                   ask_qty=200, ask_price=1500.5)])
@@ -137,7 +147,7 @@ def test_a_properly_configured_bot_starts(clean):
 def test_an_entry_is_sized_by_the_risk_engine_not_the_config(clean):
     """The config asked for 50; the engine decides what is actually safe."""
     st = state(quantity=10_000)
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     assert 0 < st.position_qty < 10_000
     assert st.entry_order_id is not None
 
@@ -146,7 +156,7 @@ def test_the_config_quantity_is_a_ceiling(clean):
     """Asking for less than the engine allows is tightening, which is
     always permitted. Asking for more is not."""
     st = state(quantity=3)
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     assert st.position_qty == 3
 
 
@@ -162,7 +172,7 @@ def test_a_rejected_entry_places_nothing_and_says_why(clean, monkeypatch):
     monkeypatch.setattr(config, "MAX_OPEN_POSITIONS", 0)
 
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     assert st.position_qty == 0
     assert sent == []
     assert st.last_rejection
@@ -174,7 +184,7 @@ def test_a_halted_system_stops_a_bot_entering(clean):
 
     killswitch.stop_all(by="test")
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     assert st.position_qty == 0
     assert "halted" in (st.last_rejection or "")
 
@@ -186,7 +196,7 @@ def test_a_blackout_stops_a_bot_entering(clean):
     events.save([events.Event("nse", "filing", "INFY: Board Meeting",
                               symbols=["INFY"])])
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     assert st.position_qty == 0
     assert "blackout" in (st.last_rejection or "")
 
@@ -195,7 +205,7 @@ def test_an_entry_gets_a_real_stop_at_the_broker(clean):
     """It used to be a comparison inside the loop, which meant it did not
     exist if the process died -- exactly when it mattered most."""
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
 
     stops = tracker.children(st.entry_order_id, role="stop")
     assert len(stops) == 1
@@ -206,7 +216,7 @@ def test_an_entry_gets_a_real_stop_at_the_broker(clean):
 def test_the_entry_is_logged_with_what_bound_the_size(clean):
     """"Why is this position so small" is otherwise unanswerable later."""
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     messages = " ".join(r["message"] for r in runner.logs(st.run_id))
     assert "sized by" in messages
 
@@ -217,7 +227,7 @@ def test_the_entry_is_logged_with_what_bound_the_size(clean):
 def test_an_exit_closes_the_position_and_cancels_the_stop(clean):
     """Leaving the stop working would sell a position we no longer hold."""
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     entry_id = st.entry_order_id
 
     run(runner._exit(st, "target hit"))
@@ -231,7 +241,7 @@ def test_an_exit_books_its_pnl(clean, monkeypatch):
     from app.risk import state as risk_state
 
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
 
     # Exit above the entry.
     async def higher(keys):
@@ -245,7 +255,7 @@ def test_an_exit_books_its_pnl(clean, monkeypatch):
 def test_a_failed_exit_does_not_forget_the_position(clean, monkeypatch):
     """A bot that forgets it holds something will re-enter on top of it."""
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
 
     async def refuse(**kw):
         raise RuntimeError("exchange down")
@@ -268,7 +278,7 @@ def test_an_exit_with_no_position_does_nothing(clean):
 def test_a_filled_stop_is_noticed(clean):
     """Otherwise the bot holds a phantom position and never trades again."""
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     stop = tracker.children(st.entry_order_id, role="stop")[0]
     tracker.update(stop["id"], filled_quantity=st.position_qty,
                    avg_fill_price=1470.0, status="complete")
@@ -278,14 +288,14 @@ def test_a_filled_stop_is_noticed(clean):
 
 def test_an_unfilled_stop_is_not_mistaken_for_a_filled_one(clean):
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
     assert runner._stop_filled(st) is False
 
 
 def test_an_unreadable_tracker_does_not_claim_the_stop_filled(clean, monkeypatch):
     """Saying it filled would make the bot re-enter while still holding."""
     st = state()
-    run(runner._enter(st, 1500.0))
+    run(runner._enter(st, 1500.0, at=OPEN_TIME))
 
     def explode(*a, **kw):
         raise RuntimeError("db gone")

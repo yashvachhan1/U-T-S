@@ -660,3 +660,159 @@ def synthesis_multiplier(strategist: StrategistOutput | None,
         mult = min(mult, 0.5)
 
     return max(0.0, min(1.0, mult))
+
+
+# --------------------------------------------------------------------------
+# Review contracts
+#
+# The review pair looks backwards. It reads the audit log, the trades and
+# the config, and reports what it finds. It does not participate in a
+# trading decision, and the schema is what stops it from drifting into one.
+#
+# `size_multiplier()` returns 1.0 for both, always. That is not laziness:
+# a review agent's `view` is a judgement about *past performance*, not
+# about the market, and letting it reach position sizing would be a
+# category error -- yesterday's poor results would shrink today's trades
+# through a channel nobody designed. The reduction that does belong there
+# comes from the analysts and the synthesis pair.
+#
+# The Risk Auditor can read config and cannot change it. There is no field
+# here through which a setting could be written, which is a stronger
+# guarantee than a rule saying it should not.
+# --------------------------------------------------------------------------
+LESSON_MAX = 500
+MAX_WARNINGS = 10
+
+AGENT_NAME = re.compile(r"[a-z][a-z0-9_]{1,40}")
+
+
+def clean_symbol_list(v: Any) -> list[str]:
+    """Ticker-shaped strings only, same rule as `affected_symbols`."""
+    if not isinstance(v, (list, tuple)):
+        return []
+    out: list[str] = []
+    for item in v:
+        raw = str(item).strip().upper()
+        if TICKER.fullmatch(raw) and raw not in out:
+            out.append(raw)
+    return out[:MAX_LIST_ITEMS]
+
+
+def clean_agent_names(v: Any) -> list[str]:
+    """Agent names, shaped like agent names.
+
+    Dropped rather than sanitised, for the same reason tickers are: a
+    mangled string that still looks like a name is worse than an absence,
+    because something downstream will try to look it up.
+    """
+    if not isinstance(v, (list, tuple)):
+        return []
+    out: list[str] = []
+    for item in v:
+        name = str(item).strip().lower().replace(" ", "_").replace("-", "_")
+        if AGENT_NAME.fullmatch(name) and name not in out:
+            out.append(name)
+    return out[:MAX_LIST_ITEMS]
+
+
+class ReviewOutput(AgentOutput):
+    """Agent 15 -- what happened today, and what it suggests.
+
+    `agents_correct` and `agents_wrong` are the model's read of the day.
+    They are a prompt for a human to look, not a measurement: the actual
+    per-agent scoring lives in `forward/attribution.py`, where it is
+    computed over hundreds of trades against a base rate rather than
+    inferred from one afternoon.
+    """
+
+    trades_today: int = Field(default=0, ge=0, le=1000)
+    agents_correct: list[str] = Field(default_factory=list)
+    agents_wrong: list[str] = Field(default_factory=list)
+    lesson: str = ""
+
+    @field_validator("agents_correct", "agents_wrong", mode="before")
+    @classmethod
+    def _names(cls, v: Any) -> list[str]:
+        return clean_agent_names(v)
+
+    @field_validator("lesson", mode="before")
+    @classmethod
+    def _lesson(cls, v: Any) -> str:
+        return str(v or "")[:LESSON_MAX]
+
+    @model_validator(mode="after")
+    def _cannot_be_both(self) -> "ReviewOutput":
+        """An agent cannot have been both right and wrong about one day."""
+        overlap = set(self.agents_correct) & set(self.agents_wrong)
+        if overlap:
+            self.agents_correct = [a for a in self.agents_correct
+                                   if a not in overlap]
+            self.agents_wrong = [a for a in self.agents_wrong
+                                 if a not in overlap]
+        return self
+
+    def size_multiplier(self) -> float:
+        """Always 1.0. A review of yesterday does not size today."""
+        return 1.0
+
+
+class AuditOutput(AgentOutput):
+    """Agent 16 -- is the risk setup still the one we meant?
+
+    Limits drift, and the drift always starts with "just this once". The
+    useful output is a warning a human reads, so everything here is
+    advisory and nothing is actionable by the system itself.
+    """
+
+    config_drift: bool = False
+    hidden_correlation: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("hidden_correlation", mode="before")
+    @classmethod
+    def _symbols(cls, v: Any) -> list[str]:
+        return clean_symbol_list(v)
+
+    @field_validator("warnings", mode="before")
+    @classmethod
+    def _warnings(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, (list, tuple)):
+            return []
+        out: list[str] = []
+        for item in v:
+            text = str(item or "").strip()[:300]
+            if text and text not in out:
+                out.append(text)
+        return out[:MAX_WARNINGS]
+
+    @model_validator(mode="after")
+    def _warnings_imply_a_flag(self) -> "AuditOutput":
+        """Warnings and a clear risk_flag contradict each other.
+
+        A model that lists three problems and then reports everything fine
+        has argued against itself, and the problems are the part carrying
+        information.
+        """
+        if self.warnings and not self.risk_flag:
+            self.risk_flag = True
+        return self
+
+    def size_multiplier(self) -> float:
+        """Always 1.0. The auditor warns; it does not trade.
+
+        It raises risk_flag so a human sees it, and that flag deliberately
+        does not travel into sizing -- an advisory agent that could shrink
+        live positions would be a second risk engine nobody designed.
+        """
+        return 1.0
+
+
+# Agents whose output must never reach position sizing. The synthesis pair
+# is excluded from the *analyst* multiplier because it is a reading of the
+# analysts and would double-count; the review pair because it is looking at
+# the past rather than at the market.
+SYNTHESIS_AGENT_NAMES = {"chief_strategist", "red_team"}
+REVIEW_AGENT_NAMES = {"post_trade_review", "risk_auditor"}
+NON_ANALYST_AGENTS = SYNTHESIS_AGENT_NAMES | REVIEW_AGENT_NAMES

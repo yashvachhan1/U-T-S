@@ -22,6 +22,7 @@ from .schemas import AgentOutput, View, combined_multiplier, neutral  # noqa: F4
 from . import llm  # noqa: F401
 from . import analysts  # noqa: F401
 from . import synthesis  # noqa: F401
+from . import review  # noqa: F401
 
 # Registration order is the order they appear in the dashboard: the fast
 # India-specific reads first, then the foreign channels, then the slow ones.
@@ -43,10 +44,15 @@ for _agent in (
     # is registered last -- the order is also the order they run in.
     synthesis.chief_strategist.agent,
     synthesis.red_team.agent,
+    # The review pair looks backwards and never touches a trade; both
+    # return a size multiplier of exactly 1.0.
+    review.post_trade.agent,
+    review.risk_auditor.agent,
 ):
     registry.register(_agent)
 
 del _agent
 
 __all__ = ["registry", "Agent", "AgentConfig", "AgentOutput", "View",
-           "neutral", "combined_multiplier", "llm", "analysts", "synthesis"]
+           "neutral", "combined_multiplier", "llm", "analysts", "synthesis",
+           "review"]

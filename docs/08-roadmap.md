@@ -485,9 +485,62 @@ machine ka sabse bura moment naap raha tha. Ab 5 chhote rounds me se
 **best** liya jaata hai: jo code sach me slow hai wo har round me fail
 karega, par CPU kisi aur ne le liya to build nahi girega.
 
-**Output:** 12 analysts + synthesis pair live feed se jude hue, 424 test
-pass. Review pair (Post-Trade Review + Risk Auditor) Phase 7 ke saath
-aayega — unhe chalane ke liye actual trades chahiye.
+### Review pair — peeche dekhne wale do agents
+
+| Agent | Kab | Kaam |
+|---|---|---|
+| 15 Post-Trade Review | roz 16:00 | Aaj kya hua aur kyun — insaan ke padhne ke liye |
+| 16 Risk Auditor | hafte me ek baar | Jo risk socha tha, kya wahi le rahe hain? |
+
+**Dono kuch badalte nahi.** `size_multiplier()` dono ka hamesha **1.0**:
+unka `view` bazaar ke baare me nahi, guzre waqt ke baare me hai. Use
+sizing me ghusne dena matlab kal ke result se aaj ka trade chhota kar
+dena — ek aise channel se jo kisi ne banaya hi nahi.
+
+Isliye dono `NON_ANALYST_AGENTS` me hain, synthesis pair ke saath — par
+wajah alag hai. Synthesis isliye bahar hai ki wo analysts ka **padha hua**
+hai (dobara ginna ho jaata); review isliye ki wo **peeche** dekh raha hai.
+
+#### Post-Trade Review: ek din ka hisaab, measurement nahi
+
+Iske `agents_correct` / `agents_wrong` **ek dopahar ka impression** hain.
+Asli scoring `forward/attribution.py` me hai — sau trades par, base rate
+ke against. Ek din ki raay ko verdict maan lena wahi tareeka hai jisse
+accha agent ek bure session par nikal diya jaata hai. Prompt me ye saaf
+likha hai, aur schema ek hi din me kisi agent ko correct aur wrong dono
+list me nahi rehne deta.
+
+`lesson` zyadatar din **"nothing notable"** hona chahiye. Jo report har
+roz koi gehri baat dhoondh le, wo padhi jaani band ho jaati hai.
+
+#### Risk Auditor: limit khisak to nahi gayi?
+
+Limits dheere khisakti hain, aur shuruat hamesha "bas ek baar" se hoti
+hai. Auditor hafte me ek baar har limit ko uske **hard ceiling ke saath**
+dikhata hai — 90% par pahunchi limit par `<-- at the ceiling` lagta hai.
+
+**Chhupa correlation** sabse khatarnak hai, aur wo arithmetic hai,
+judgement nahi. `concentration.py` exposure ka **inverse Herfindahl**
+nikalta hai:
+
+```
+effective_positions = 1 / sum(weight_i ** 2)
+```
+
+| Book | Nominal | Effective |
+|---|---|---|
+| 5 positions, 5 industries | 5 | **5.0** |
+| 3 positions, teeno IT | 3 | **1.0** (67% diversification jhooth) |
+
+Model se ye number guess nahi karwaya jaata — Python nikalta hai, prompt
+me jaata hai, aur usme likha hai ki use kaise padhna hai.
+
+Ek aur schema rule: **warning hai to risk_flag apne aap on** ho jaata
+hai. Teen problem ginakar "sab theek hai" kehna khud se ulta hai, aur
+information problems me hai.
+
+**Output:** saare 16 agents bane hue hain — 12 analysts + synthesis pair
++ review pair, 691 test pass.
 
 ---
 
