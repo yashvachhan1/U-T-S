@@ -24,6 +24,12 @@ const PATHS = {
   sun: <><circle cx="12" cy="12" r="4.2" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" /></>,
   moon: <path d="M21 13.2A9 9 0 1 1 10.8 3a7 7 0 0 0 10.2 10.2z" />,
   x: <path d="M6 6l12 12M18 6L6 18" strokeWidth="2.5" />,
+  brain: <><path d="M9.5 3A3.5 3.5 0 0 0 6 6.5 3 3 0 0 0 4 9.3a3 3 0 0 0 1 2.2 3 3 0 0 0-1 2.2 3 3 0 0 0 2.2 2.9A3.5 3.5 0 0 0 9.5 21 2.5 2.5 0 0 0 12 18.5v-13A2.5 2.5 0 0 0 9.5 3z" /><path d="M14.5 3A3.5 3.5 0 0 1 18 6.5a3 3 0 0 1 2 2.8 3 3 0 0 1-1 2.2 3 3 0 0 1 1 2.2 3 3 0 0 1-2.2 2.9A3.5 3.5 0 0 1 14.5 21 2.5 2.5 0 0 1 12 18.5v-13A2.5 2.5 0 0 1 14.5 3z" /></>,
+  shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M9 12l2 2 4-4" /></>,
+  zap: <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />,
+  link: <><path d="M10 13a5 5 0 0 0 7.5.5l3-3A5 5 0 0 0 13.5 3.5l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3A5 5 0 0 0 10.5 20.5l1.7-1.7" /></>,
+  pause: <><rect x="7" y="5" width="4" height="14" rx="1.2" fill="currentColor" stroke="none" /><rect x="13" y="5" width="4" height="14" rx="1.2" fill="currentColor" stroke="none" /></>,
+  scale: <><path d="M12 3v18M7 21h10" /><path d="M5 7h14M5 7 2 13h6L5 7zM19 7l-3 6h6l-3-6z" /></>,
 }
 
 export default function Icon({ name, className, style }) {

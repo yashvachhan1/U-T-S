@@ -168,3 +168,104 @@ export function SideTag({ side }) {
 export function Spinner() {
   return <i className="spin" />
 }
+
+/**
+ * A single ratio against a limit.
+ *
+ * The fill carries severity and the track is a lighter step of the same
+ * ramp, so the state reads across the whole bar rather than only where the
+ * fill ends. The number is always written out: a bar answers "roughly how
+ * full", and the only question that matters here is "how close to the
+ * limit", which needs the figure.
+ */
+export function Meter({ label, value, limit, unit = '', hint, invert = false }) {
+  const ratio = limit > 0 ? Math.max(0, Math.min(1.25, value / limit)) : 0
+  const pct = Math.min(100, ratio * 100)
+
+  /* Two kinds of bar share this component and they read in opposite
+     directions. A *limit* meter is worse as it fills -- 80% of the daily
+     loss budget is a warning. A *coverage* meter is better as it fills --
+     532 of 532 instruments subscribed is the goal, and colouring that red
+     because it "hit the limit" would train the reader to ignore red. */
+  const level = invert
+    ? (ratio >= 0.99 ? 'good' : ratio >= 0.8 ? 'ok' : ratio >= 0.5 ? 'warn' : 'crit')
+    : (ratio >= 1 ? 'crit' : ratio >= 0.8 ? 'warn' : 'ok')
+
+  return (
+    <div className="meter">
+      <div className="meter-top">
+        <span className="meter-label">{label}</span>
+        <span className={'meter-value ' + (level === 'good' ? 'ok' : level)}>
+          {fmtMeter(value)}{unit}
+          <em> / {fmtMeter(limit)}{unit}</em>
+        </span>
+      </div>
+      <div className="meter-track">
+        <i className={'meter-fill ' + level} style={{ width: `${pct}%` }} />
+      </div>
+      {hint && <div className="meter-hint">{hint}</div>}
+    </div>
+  )
+}
+
+const fmtMeter = (n) =>
+  n === null || n === undefined || Number.isNaN(Number(n))
+    ? '—'
+    : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+
+/**
+ * The one number a view leads with. Exactly one per view.
+ *
+ * Proportional figures on purpose -- tabular-nums gives every digit the
+ * width of a zero, which looks loose at this size.
+ */
+export function Hero({ label, value, tone = '', sub, children }) {
+  return (
+    <div className={'hero ' + tone}>
+      <div className="hero-k">{label}</div>
+      <div className="hero-v">{value}</div>
+      {sub && <div className="hero-sub">{sub}</div>}
+      {children}
+    </div>
+  )
+}
+
+/**
+ * State, never by colour alone.
+ *
+ * Colour is a second channel here, not the only one: the label is always
+ * written and an icon rides along, so the tag survives colourblindness,
+ * greyscale printing and forced-colors mode.
+ */
+export function StatusTag({ tone = 'muted', icon, children, className = '' }) {
+  return (
+    <span className={`status-tag ${tone} ${className}`}>
+      {icon && <Icon name={icon} />}
+      <span>{children}</span>
+    </span>
+  )
+}
+
+/** A labelled confidence/0-1 strength bar, used in the agent cards. */
+export function Strength({ value, tone = 'ok' }) {
+  const pct = Math.max(0, Math.min(1, Number(value) || 0)) * 100
+  return (
+    <div className="strength" title={`${pct.toFixed(0)}%`}>
+      <i className={'strength-fill ' + tone} style={{ width: `${pct}%` }} />
+    </div>
+  )
+}
+
+/** Key/value rows for a small detail panel. */
+export function KeyValues({ rows }) {
+  return (
+    <div className="kvs">
+      {rows.map(([k, v]) => (
+        <div className="kv" key={k}>
+          <span className="kv-k">{k}</span>
+          <span className="kv-v">{v}</span>
+        </div>
+      ))}
+    </div>
+  )
+}

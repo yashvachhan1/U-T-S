@@ -9,6 +9,9 @@ import ChartTrade from './views/ChartTrade.jsx'
 import { OrdersView, PortfolioView } from './views/OrdersPortfolio.jsx'
 import Backtest from './views/Backtest.jsx'
 import Bots from './views/Bots.jsx'
+import Agents from './views/Agents.jsx'
+import Risk from './views/Risk.jsx'
+import Execution from './views/Execution.jsx'
 import Setup from './views/Setup.jsx'
 
 const NAV = [
@@ -20,6 +23,13 @@ const NAV = [
   ['Strategy', [
     ['backtest', 'Backtest', 'flask'],
     ['bots', 'Algo Bots', 'bot'],
+  ]],
+  // The automated stack, in the order a decision travels through it:
+  // agents form a view, risk decides, execution sends.
+  ['Automation', [
+    ['agents', 'Agents', 'brain'],
+    ['risk', 'Risk', 'shield'],
+    ['execution', 'Execution', 'zap'],
   ]],
 ]
 
@@ -204,6 +214,15 @@ export default function App() {
         </section>
         <section className={'view ' + (view === 'bots' ? 'active' : '')}>
           {view === 'bots' && <Bots strategies={strategies} status={status} />}
+        </section>
+        <section className={'view ' + (view === 'agents' ? 'active' : '')}>
+          {view === 'agents' && <Agents />}
+        </section>
+        <section className={'view ' + (view === 'risk' ? 'active' : '')}>
+          {view === 'risk' && <Risk />}
+        </section>
+        <section className={'view ' + (view === 'execution' ? 'active' : '')}>
+          {view === 'execution' && <Execution />}
         </section>
         <section className={'view ' + (view === 'help' ? 'active' : '')}>
           {view === 'help' && <Setup status={status} />}

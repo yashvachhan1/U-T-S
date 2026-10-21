@@ -237,7 +237,11 @@ main { grid-area: main; overflow: hidden; position: relative; }
 .view.flush { padding: 12px; }
 .view.fill { overflow: hidden; }
 
-.page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+/* Wraps rather than overflowing: at phone width the title takes the row
+   and the actions drop below it, instead of the last button sliding off
+   the right edge. */
+.page-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.page-head > div:first-child { min-width: 0; }
 .page-head h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.2px; }
 .page-head p { margin: 0; color: var(--text-2); font-size: 12.5px; }
 
@@ -735,3 +739,173 @@ code.inline { font-family: var(--mono); font-size: 12px; background: var(--bg-2)
 .rail-item:active { transform: scale(.98); }
 .btn.block { justify-content: center; }
 .chart-msg .btn { margin: 0 auto; }
+
+/* ===================================================================
+   Dashboard: meters, hero figures, status tags, agent cards
+   ===================================================================
+   Status is a fixed four-step scale -- good / ok / warn / crit -- kept
+   separate from the up/down price colours so a limit near its ceiling
+   never reads as "price down". Every status also carries a label and an
+   icon, so colour is the second channel and not the only one.         */
+
+.status-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 650; letter-spacing: .2px;
+  border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text-1);
+  white-space: nowrap;
+}
+.status-tag svg { width: 12px; height: 12px; flex: none; }
+.status-tag.good { color: var(--up);     background: var(--up-soft);     border-color: rgba(14,203,129,.32); }
+.status-tag.ok   { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+.status-tag.warn { color: var(--warn);   background: var(--warn-soft);   border-color: rgba(240,169,59,.34); }
+.status-tag.crit { color: var(--down);   background: var(--down-soft);   border-color: rgba(246,70,93,.34); }
+.status-tag.muted { color: var(--text-2); }
+
+/* ---- meter: one ratio against one limit --------------------------- */
+.meter { display: flex; flex-direction: column; gap: 6px; }
+.meter + .meter { margin-top: 14px; }
+.meter-top { display: flex; align-items: baseline; gap: 10px; }
+.meter-label {
+  font-size: 11.5px; font-weight: 600; color: var(--text-1);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.meter-value {
+  font-family: var(--mono); font-size: 12px; font-weight: 650;
+  font-variant-numeric: tabular-nums; color: var(--text-0);
+}
+.meter-value em { font-style: normal; color: var(--text-2); font-weight: 500; }
+.meter-value.warn { color: var(--warn); }
+.meter-value.crit { color: var(--down); }
+
+/* The track is a tinted step of the fill's own ramp, so the bar reads as
+   one object rather than a coloured stub on neutral grey. */
+.meter-track {
+  height: 6px; border-radius: 999px; overflow: hidden;
+  background: var(--accent-soft);
+}
+.meter-fill {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--accent);
+  transition: width .35s cubic-bezier(.4, 0, .2, 1), background-color .2s;
+}
+.meter-fill.good { background: var(--up); }
+.meter-fill.warn { background: var(--warn); }
+.meter-fill.crit { background: var(--down); }
+.meter-hint { font-size: 11px; color: var(--text-2); }
+
+/* ---- hero: the one number a view leads with ----------------------- */
+.hero {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 18px 20px; border-radius: var(--r-lg);
+  border: 1px solid var(--line-2); background: var(--bg-2);
+  position: relative; overflow: hidden;
+}
+.hero::after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: var(--accent);
+}
+.hero.good::after { background: var(--up); }
+.hero.warn::after { background: var(--warn); }
+.hero.crit::after { background: var(--down); }
+.hero-k {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .8px;
+  font-weight: 700; color: var(--text-2);
+}
+.hero-v {
+  /* Proportional figures on purpose: tabular-nums gives every digit the
+     width of a zero, which reads loose at display sizes. */
+  font-family: var(--sans); font-size: 52px; line-height: 1.05;
+  font-weight: 680; letter-spacing: -2px; color: var(--text-0);
+  margin: 2px 0;
+}
+.hero.good .hero-v { color: var(--up); }
+.hero.warn .hero-v { color: var(--warn); }
+.hero.crit .hero-v { color: var(--down); }
+.hero-sub { font-size: 12px; color: var(--text-1); max-width: 54ch; }
+
+/* ---- strength: a 0-1 bar inside a dense card ---------------------- */
+.strength { height: 4px; border-radius: 999px; background: var(--bg-4); overflow: hidden; }
+.strength-fill { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s; }
+.strength-fill.good { background: var(--up); }
+.strength-fill.warn { background: var(--warn); }
+.strength-fill.crit { background: var(--down); }
+
+/* ---- key/value rows ----------------------------------------------- */
+.kvs { display: flex; flex-direction: column; gap: 1px; }
+.kv {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 7px 0; border-bottom: 1px solid var(--line);
+}
+.kv:last-child { border-bottom: 0; }
+.kv-k { font-size: 11.5px; color: var(--text-2); flex: 1; min-width: 0; }
+.kv-v {
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  color: var(--text-0); text-align: right; font-variant-numeric: tabular-nums;
+}
+
+/* ---- agent cards --------------------------------------------------- */
+.agent-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px;
+}
+.agent-card {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 12px; border-radius: var(--r);
+  border: 1px solid var(--line-2); background: var(--bg-2);
+  transition: border-color .15s, transform .15s;
+}
+.agent-card:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.agent-card.stale { opacity: .62; }
+.agent-top { display: flex; align-items: center; gap: 8px; }
+.agent-name {
+  font-size: 12.5px; font-weight: 650; color: var(--text-0);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agent-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.agent-conf { font-family: var(--mono); font-size: 11px; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.agent-age { font-size: 10.5px; color: var(--text-2); }
+.agent-why {
+  font-size: 11px; line-height: 1.45; color: var(--text-1);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; min-height: 32px;
+}
+.agent-card .btn { align-self: flex-start; }
+
+/* ---- halt banner: must be impossible to miss ----------------------- */
+.halt-banner {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 14px 16px; border-radius: var(--r-lg);
+  border: 1px solid rgba(246,70,93,.4); background: var(--down-soft);
+  margin-bottom: 14px;
+}
+.halt-banner.paused { border-color: rgba(240,169,59,.4); background: var(--warn-soft); }
+.halt-banner.running { border-color: rgba(14,203,129,.32); background: var(--up-soft); }
+.halt-banner > svg { width: 22px; height: 22px; flex: none; color: var(--down); }
+.halt-banner.paused > svg { color: var(--warn); }
+.halt-banner.running > svg { color: var(--up); }
+.halt-title { font-size: 14px; font-weight: 700; color: var(--text-0); }
+.halt-why { font-size: 12px; color: var(--text-1); margin-top: 2px; }
+.halt-why code { font-family: var(--mono); font-size: 11.5px; color: var(--text-0); }
+
+/* ---- reconcile rows ------------------------------------------------ */
+.recon-row {
+  display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px;
+  align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.recon-row:last-child { border-bottom: 0; }
+.recon-row .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 560px) {
+  /* The spacer is what pins the actions to the right on a wide header;
+     at this width it would push them off the edge instead. */
+  .page-head .spacer { display: none; }
+  .page-head > div:first-child { flex: 1 1 100%; }
+  .halt-banner { gap: 10px; }
+  .recon-row { grid-template-columns: 1fr auto; row-gap: 4px; }
+}
+
+@media (max-width: 860px) {
+  .hero-v { font-size: 40px; }
+  .agent-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
