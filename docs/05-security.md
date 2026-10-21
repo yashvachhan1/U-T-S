@@ -11,8 +11,24 @@
 Abhi `main.py` `127.0.0.1` par bind hota hai, aur **koi login/auth nahi hai**.
 Localhost par ye theek hai — sirf aapka PC hi pahunch sakta hai.
 
-**Par SEBI/Upstox ka naya framework static IP maangta hai.** Ghar ka IP dynamic
-hota hai, to aap VPS lenge. Aur VPS par ye app chalte hi:
+**Par SEBI/Upstox ka naya framework static IP maangta hai** — aur ye sirf
+**order wale APIs** par lagta hai. Market data (candles, websocket feed,
+quotes) aur portfolio kisi bhi IP se chalte hain.
+
+| Kya | Static IP chahiye? |
+|---|---|
+| Feed, candles, quotes, positions padhna | ❌ nahi |
+| **Order place / modify / cancel** | ✅ **haan** |
+
+Matlab **paper forward test ghar ke connection se chal sakta hai** — usme
+order Upstox tak jaate hi nahi. VPS tab chahiye jab **live** jana ho, ya
+jab uptime chahiye (Phase 7 me 95% target hai, aur ghar ka PC bijli jaane
+par wo nahi de paata).
+
+Ek primary + ek secondary IP register hote hain, aur **hafte me ek baar**
+hi badal sakte hain. IP badla to token usi waqt invalid.
+
+VPS par ye app chalte hi:
 
 ```
 koi bhi jo port 8000 tak pahunch sake  →  aapke paise se order place kar sakta hai

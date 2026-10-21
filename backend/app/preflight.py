@@ -236,11 +236,15 @@ def check_forward() -> Section:
     # which is the single most expensive way to waste the phase.
     from .decision import scanner
 
-    cfg = scanner.status()["config"]
-    names = scanner.watchlist()
+    state = scanner.status()
+    cfg = state["config"]
+    names = state["watchlist"]
+    # Symbols, not keys: an equity key is an ISIN, and "INE002A01018"
+    # tells a reader nothing about which stock is being watched.
+    shown = state.get("watchlist_symbols") or names
     s.checks.append(Check(
         "scanner configured", bool(names),
-        f"{len(names)} instruments: {', '.join(n.split('|')[-1] for n in names[:4])}"
+        f"{len(names)} instruments: {', '.join(shown[:4])}"
         + ("..." if len(names) > 4 else "") if names
         else "watchlist khali hai -- scanner ko dekhne ke liye kuch chahiye",
         fix="Chart & Trade page se watchlist me instruments add karein, ya "

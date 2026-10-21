@@ -156,6 +156,25 @@ def _err_msg(body: Any, fallback: str) -> str:
     return fallback
 
 
+def _halt_on_dead_session(body: Any) -> None:
+    """Trip the session_expired kill switch. Never raises.
+
+    Imported lazily and wrapped: this runs inside the HTTP error path, and
+    a failure to record the halt must not replace the 401 the caller is
+    waiting for with something unrelated.
+    """
+    try:
+        from ..risk import killswitch
+
+        if killswitch.state() is not killswitch.State.HALTED:
+            killswitch.trip(
+                "session_expired",
+                "Upstox ne 401 diya -- token mar gaya (roz 03:30 par, ya IP "
+                "badalne par). Dobara login karein, phir Risk page se reset.")
+    except Exception:                              # noqa: BLE001
+        pass
+
+
 async def request(
     method: str,
     path: str,
@@ -182,6 +201,15 @@ async def request(
 
     body = _parse(r)
     if r.status_code == 401:
+        # A dead session is not a transient error: every call after this
+        # one fails too, and the orders among them fail silently one by
+        # one. Halting makes it loud and stops new positions opening into
+        # a broker we can no longer talk to.
+        #
+        # Upstox invalidates the token daily at 03:30, and immediately if
+        # the registered IP changes -- so this fires on an ordinary
+        # morning, not only on something going wrong.
+        _halt_on_dead_session(body)
         raise UpstoxError("Upstox session expire ho gaya. Dobara login karein.", 401, body)
     if r.status_code >= 400 or (isinstance(body, dict) and body.get("status") == "error"):
         raise UpstoxError(_err_msg(body, f"Upstox API error {r.status_code}"), r.status_code, body)

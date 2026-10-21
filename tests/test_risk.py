@@ -719,3 +719,61 @@ def test_an_unserialisable_detail_does_not_lose_the_record(clean_db):
     audit.record("decision", subject="X", detail={"obj": object()})
     assert audit.verify()["intact"] is True
     assert audit.recent()[0]["subject"] == "X"
+
+
+# ==========================================================================
+# A dead Upstox session
+# ==========================================================================
+def test_a_401_halts_trading(clean_db, monkeypatch):
+    """Upstox invalidates the token daily at 03:30, and immediately if the
+    registered IP changes. So this fires on an ordinary morning, not only
+    when something has gone wrong -- and without it every call after the
+    first just fails, orders among them, one quiet failure at a time.
+    """
+    from app.upstox import client
+
+    client._halt_on_dead_session({"errors": [{"message": "Invalid token"}]})
+    assert killswitch.state() is killswitch.State.HALTED
+    assert any(r["trigger"] == "session_expired" for r in killswitch.reasons())
+
+
+def test_a_401_needs_a_human_to_clear(clean_db):
+    """Clearing it means logging in again, which is a person's job."""
+    from app.upstox import client
+
+    client._halt_on_dead_session({})
+    assert killswitch.status()["needs_manual_reset"] is True
+    assert killswitch.entries_allowed() is False
+
+
+def test_a_401_does_not_block_exits(clean_db):
+    """Being unable to leave is worse than any condition that caused it --
+    and a closing order placed against a dead session fails loudly rather
+    than silently."""
+    from app.upstox import client
+
+    client._halt_on_dead_session({})
+    assert killswitch.exits_allowed() is True
+
+
+def test_a_401_does_not_overwrite_an_existing_halt(clean_db):
+    """The first reason is the useful one. A token dying because trading
+    already stopped should not hide why it stopped."""
+    from app.upstox import client
+
+    killswitch.trip("daily_loss", "down 3.2%")
+    client._halt_on_dead_session({})
+    triggers = [r["trigger"] for r in killswitch.reasons()]
+    assert triggers == ["daily_loss"]
+
+
+def test_recording_the_halt_never_raises(clean_db, monkeypatch):
+    """It runs inside the HTTP error path: a failure here must not replace
+    the 401 the caller is waiting for with something unrelated."""
+    from app.upstox import client
+
+    def explode(*a, **kw):
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(killswitch, "trip", explode)
+    client._halt_on_dead_session({})      # must not raise
