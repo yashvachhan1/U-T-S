@@ -201,18 +201,29 @@ async def ensure_stop(entry: dict[str, Any] | None) -> dict[str, Any] | None:
 
 async def close_position(instrument_key: str, quantity: int, side: str, *,
                          role: str = "exit", product: str = "I",
-                         source: str = "exit") -> dict[str, Any]:
-    """Close out a quantity. Never blocked by the kill switch."""
+                         source: str = "exit",
+                         parent_id: int | None = None) -> dict[str, Any]:
+    """Close out a quantity. Never blocked by the kill switch.
+
+    `parent_id` links the exit to the entry it closes. Without it the P&L
+    cannot be computed -- `realised_pnl` returns None rather than a guess --
+    so any caller that knows which entry it is closing should pass it.
+    """
     exit_side = "SELL" if side.upper() == "BUY" else "BUY"
     symbol = _symbol(instrument_key)
     tag = order_builder.idempotency_key(
         instrument_key=instrument_key, side=exit_side, quantity=quantity,
         source=source)
 
+    # A position being closed by hand has no use for its protective stop,
+    # and leaving it working would sell a position we no longer hold.
+    if parent_id:
+        await cancel_siblings(parent_id)
+
     order_id = tracker.create(
         tag=tag, instrument_key=instrument_key, symbol=symbol, side=exit_side,
         quantity=quantity, role=role, order_type="MARKET", product=product,
-        source=source)
+        source=source, parent_id=parent_id)
 
     result = await trading.place_order(
         instrument_key=instrument_key, side=exit_side, quantity=quantity,
@@ -225,6 +236,16 @@ async def close_position(instrument_key: str, quantity: int, side: str, *,
     audit.record("exit_sent", subject=symbol,
                  outcome=str(result.get("order_id") or "sent"),
                  detail={"quantity": quantity, "role": role, "source": source})
+
+    # Paper fills are instant, so the result is realised now rather than on
+    # a poll that would find nothing left to watch.
+    if result.get("status") == "complete" and parent_id:
+        pnl = realised_pnl(tracker.get(order_id))
+        if pnl is not None:
+            risk_state.record_trade(pnl, symbol=symbol, source=role)
+            audit.record("trade_closed", subject=symbol, outcome=f"{pnl:+.2f}",
+                         detail={"tracked_id": order_id, "role": role})
+
     return {"tracked_id": order_id, "broker": result}
 
 
@@ -240,6 +261,14 @@ async def poll() -> dict[str, Any]:
     live = tracker.live_orders()
     if not live:
         return {"polled": 0, "filled": 0, "stops_placed": 0, "cancelled": 0}
+
+    # In paper mode nothing else moves a pending stop to filled, so the
+    # trigger check runs here, before the book is read.
+    try:
+        await trading.simulate_paper_fills()
+    except Exception as exc:                       # noqa: BLE001
+        audit.record("paper_fill_failed", outcome="error",
+                     detail={"error": str(exc)[:300]})
 
     try:
         book = await trading.order_book()

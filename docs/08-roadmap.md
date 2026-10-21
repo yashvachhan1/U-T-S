@@ -884,14 +884,57 @@ Do aur cheezein isi me mili:
    chalta rahe — matlab ye har cycle par **chup-chaap** fail hota. Ab
    strategy config karte waqt validate hoti hai, scan ke waqt nahi.
 
-2. **Purane Algo Bots risk engine bypass karte hain.** Wo seedha
-   `place_order` call karte hain, isliye sizing, exposure limits, edge
-   test aur blackout unpar lagta hi nahi — sirf kill switch lagta hai
-   (wo order path par hai). Forward test ke liye scanner use karna hai,
-   bots nahi. Ye roadmap me likha hua gap hai, chhupaya nahi gaya.
+2. **Purane Algo Bots risk engine bypass karte the** — ab fix ho gaya,
+   neeche dekho.
+
+### Bots ab risk engine se guzarte hain
+
+Pehle bot seedha `place_order` call karta tha — fixed quantity, apna
+soft stop. Matlab sizing, exposure limits, edge test aur blackout unpar
+lagta hi nahi tha.
+
+Ab bot **propose** karta hai, risk engine **faisla** karta hai.
+
+| Pehle | Ab |
+|---|---|
+| `cfg.quantity` hi final | Engine size karta hai; `cfg.quantity` sirf **ceiling** hai |
+| Stop = loop ke andar close price se compare | **Asli SL order** broker par |
+| Blackout/exposure/edge laagu nahi | Sab laagu |
+| Reject hone par kuch pata nahi chalta | Bot log me poori wajah |
+
+Do cheezein behaviour badalti hain, aur dono jaan-boojhkar:
+
+- **Stop ke bina bot start hi nahi hoga.** Size stop ki doori se nikalti
+  hai. Start par mana karta hai, pehle signal par nahi — warna lagta ki
+  strategy kabhi fire hi nahi hui.
+- **Bot ko ab feed chahiye.** Live tick ke bina risk engine entry reject
+  kar dega (sizing aur limit price dono last price se aate hain).
+
+Purana soft stop hata diya gaya: wo **process marne par exist hi nahi
+karta tha** — theek us waqt jab sabse zyada chahiye hota hai. Ab asli
+stop broker par hai, aur agar wo fill ho jaye to bot `_stop_filled()` se
+pata kar leta hai (warna wo phantom position pakad kar baitha rehta).
+
+### Aur ek bug jo isi me mila — paper mode stop ko stop manta hi nahi tha
+
+Paper mode har order ko **turant complete** kar deta tha, stop order ko
+bhi. Matlab jaise hi protective stop lagta, position **usi pal stop price
+par band** ho jaati.
+
+> Har paper trade ek guaranteed loss hota. Do mahine ka forward test
+> wahi naapta — aur use strategy ka result samajh liya jaata.
+
+Fix: paper mode me SL/SL-M ab `open` rehte hain aur `simulate_paper_fills()`
+har poll par trigger check karta hai. Sell stop neeche trigger hota hai,
+buy stop upar. Trigger par hi fill hota hai — jo optimistic hai (asli stop
+gap par bura fill deta hai), aur uska jawab cost model ki slippage hai.
+
+Purane database ke liye `_migrate()` column add kar deta hai — install
+delete karne ki zarurat nahi.
 
 **Output (setup ka):** roz ka record, per-agent attribution, backtest
-comparison, self-checking checklist aur signal source — 635 test pass.
+comparison, self-checking checklist, signal source, aur bots bhi risk
+engine ke andar — 655 test pass.
 
 > **Asli output abhi baaki hai**, aur wo code se nahi aayega: 2–3 mahine
 > chalana padega. Setup ka matlab hai ki ab wo mahine **naape** jaa rahe

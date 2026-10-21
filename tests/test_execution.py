@@ -596,3 +596,85 @@ def test_stopping_the_loop_leaves_orders_alone(clean_db, paper):
     run(go())
     assert tracker.get(order_id)["status"] == "open"
     assert loop.running() is False
+
+
+# ==========================================================================
+# Paper mode has to model a stop as a stop
+# ==========================================================================
+def test_a_paper_stop_waits_for_its_trigger(clean_db, paper):
+    """This one would have invalidated the entire forward test.
+
+    Paper mode filled every order on arrival, including the protective
+    stop -- so each position closed at the stop price the instant it
+    opened. Two months of paper trading would have measured a guaranteed
+    loss on every trade and called it the strategy.
+    """
+    from app.upstox import trading
+
+    out = run(trading.place_order(
+        instrument_key=INFY, side="SELL", quantity=10, order_type="SL-M",
+        trigger_price=1470.0, product="I", source="t", intent="close"))
+    assert out["status"] == "open"
+    assert out["trigger_price"] == 1470.0
+
+
+def test_a_paper_position_survives_its_stop_being_placed(clean_db, paper):
+    out = run(executor.place_entry(approved(), stop_price=1470.0))
+    assert tracker.our_positions().get(INFY) == 10
+
+    from app.upstox import trading
+
+    positions = run(trading.positions())
+    held = {p["tradingsymbol"]: p["quantity"] for p in positions}
+    assert held.get("INFY", 0) == 10 or held.get(INFY, 0) == 10
+
+
+def test_a_paper_stop_fills_when_the_price_reaches_it(clean_db, paper, monkeypatch):
+    from app.upstox import trading
+
+    run(trading.place_order(
+        instrument_key=INFY, side="BUY", quantity=10, order_type="MARKET",
+        product="I", source="t", intent="open"))
+    run(trading.place_order(
+        instrument_key=INFY, side="SELL", quantity=10, order_type="SL-M",
+        trigger_price=1470.0, product="I", source="t", intent="close"))
+
+    assert run(trading.simulate_paper_fills()) == []     # 1500, not triggered
+
+    async def lower(keys):
+        return {k: {"ltp": 1465.0} for k in keys}
+
+    monkeypatch.setattr("app.upstox.marketdata.ltp", lower)
+    filled = run(trading.simulate_paper_fills())
+    assert len(filled) == 1
+    assert filled[0]["price"] == 1470.0             # fills at the trigger
+
+
+def test_a_buy_stop_triggers_upwards(clean_db, paper, monkeypatch):
+    """A sell stop sits below the market, a buy stop above. Getting the
+    comparison backwards would fill every stop instantly again."""
+    from app.upstox import trading
+
+    run(trading.place_order(
+        instrument_key=INFY, side="BUY", quantity=10, order_type="SL-M",
+        trigger_price=1530.0, product="I", source="t", intent="close"))
+    assert run(trading.simulate_paper_fills()) == []     # 1500 < 1530
+
+    async def higher(keys):
+        return {k: {"ltp": 1535.0} for k in keys}
+
+    monkeypatch.setattr("app.upstox.marketdata.ltp", higher)
+    assert len(run(trading.simulate_paper_fills())) == 1
+
+
+def test_a_pending_paper_stop_reports_nothing_filled(clean_db, paper):
+    """The order book is what the poll reads, so a pending stop showing a
+    filled quantity would book a trade that never happened."""
+    from app.upstox import trading
+
+    run(trading.place_order(
+        instrument_key=INFY, side="SELL", quantity=10, order_type="SL-M",
+        trigger_price=1470.0, product="I", source="t", intent="close"))
+    row = next(r for r in run(trading.order_book()) if r["status"] == "open")
+    assert row["filled_quantity"] == 0
+    assert row["average_price"] == 0

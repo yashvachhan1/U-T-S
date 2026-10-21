@@ -20,9 +20,14 @@ CREATE TABLE IF NOT EXISTS paper_orders (
     price         REAL NOT NULL,
     order_type    TEXT NOT NULL,
     product       TEXT NOT NULL,
-    status        TEXT NOT NULL,          -- complete / rejected
+    status        TEXT NOT NULL,          -- open / complete / rejected / cancelled
     source        TEXT NOT NULL,          -- manual / bot:<name>
-    note          TEXT
+    note          TEXT,
+    -- A stop order waits for its trigger instead of filling on arrival.
+    -- Without this, paper mode filled the protective stop the moment it was
+    -- placed, which closed every position at the stop price the instant it
+    -- opened -- a guaranteed loss on every paper trade.
+    trigger_price REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS bot_runs (
@@ -55,6 +60,19 @@ CREATE TABLE IF NOT EXISTS watchlist (
 """
 
 
+def _migrate(c: sqlite3.Connection) -> None:
+    """Add columns that older databases will not have.
+
+    SQLite has no "add column if missing", and an existing install must
+    not have to be deleted to pick up a fix.
+    """
+    cols = {r[1] for r in c.execute("PRAGMA table_info(paper_orders)")}
+    if cols and "trigger_price" not in cols:
+        c.execute("ALTER TABLE paper_orders ADD COLUMN "
+                  "trigger_price REAL NOT NULL DEFAULT 0")
+        c.commit()
+
+
 def conn() -> sqlite3.Connection:
     c = getattr(_local, "conn", None)
     if c is None:
@@ -62,6 +80,7 @@ def conn() -> sqlite3.Connection:
         c.row_factory = sqlite3.Row
         c.executescript(SCHEMA)
         c.commit()
+        _migrate(c)
         _local.conn = c
     return c
 

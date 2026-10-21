@@ -274,9 +274,12 @@ Har signal `decide()` se guzarta hai — sizing, exposure limits, edge test,
 blackout, kill switch. Scanner **order place karta hi nahi**; wo proposal
 banata hai aur risk engine faisla karta hai.
 
-> **Purane Algo Bots** (Bots page) ye raasta use **nahi** karte — wo seedha
-> order bhejte hain. Unme sirf kill switch lagta hai, baaki risk limits
-> nahi. Forward test ke liye scanner use karein, bots nahi.
+> **Algo Bots bhi ab isi raaste se jaate hain.** Pehle wo seedha order
+> bhejte the; ab bot propose karta hai aur risk engine faisla karta hai.
+> Do cheezein isme badli hain: **stop-loss % set kiye bina bot start nahi
+> hoga**, aur bot ko **feed chahiye** (live tick ke bina entry reject hogi).
+> Scanner aur bots dono theek hain — scanner watchlist par chalta hai, bot
+> ek instrument par.
 
 ---
 

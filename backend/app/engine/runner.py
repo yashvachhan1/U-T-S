@@ -5,10 +5,28 @@ SAME strategy function the backtester uses, and acts on the most recently
 CLOSED candle.  The forming candle is deliberately ignored: acting on it would
 repaint and produce signals the backtest never saw.
 
+Every entry goes through the risk engine. A bot proposes; the risk engine
+decides the quantity and whether it happens at all. That was not true
+before -- bots called `place_order` directly with a fixed quantity, so
+position sizing, exposure limits, the edge test and the news blackout
+never applied to them, and only the kill switch did because it sits on the
+order path.
+
+Two consequences worth stating, because both change behaviour:
+
+**A bot will not start without a stop.** Sizing is derived from the stop
+distance, so without one there is nothing to size against. This refuses at
+start rather than at the first signal, where it would look like the
+strategy simply never fired.
+
+**The stop is now a real order at the broker.** It used to be a comparison
+against the close price inside this loop, which meant it did not exist if
+the process died -- exactly when it was most needed.
+
 Safety rails that are always on:
   * respects PAPER_TRADING -- nothing reaches Upstox while it is true,
   * one position at a time per bot,
-  * a max-trades-per-day cap,
+  * a max-trades-per-day cap, under the risk engine's own daily cap,
   * trading-window check so it does not fire outside market hours,
   * any exception stops the bot rather than retrying blindly.
 """
@@ -66,6 +84,10 @@ class BotState:
     last_signal: str | None = None
     last_error: str | None = None
     last_check: str | None = None
+    # The tracked entry order, so an exit can be matched to it and the P&L
+    # computed instead of guessed.
+    entry_order_id: int | None = None
+    last_rejection: str | None = None
 
     def to_json(self) -> dict:
         return {
@@ -85,6 +107,7 @@ class BotState:
             "last_candle_ts": self.last_candle_ts,
             "last_check": self.last_check,
             "last_error": self.last_error,
+            "last_rejection": self.last_rejection,
             "mode": "paper" if config.PAPER_TRADING else "LIVE",
         }
 
@@ -104,6 +127,17 @@ async def start(cfg: BotConfig) -> BotState:
     strat.get(cfg.strategy)                       # raises if unknown
     if cfg.quantity <= 0:
         raise ValueError("Quantity 0 se zyada honi chahiye.")
+    if config.REQUIRE_STOP_LOSS and cfg.stop_loss_pct <= 0:
+        # Refused here rather than at the first signal, where it would look
+        # like the strategy simply never fired.
+        raise ValueError(
+            "Stop-loss % set kiye bina bot start nahi hoga. Risk engine "
+            "position size stop ki doori se nikalta hai -- stop nahi to "
+            "size karne ko kuch hai hi nahi.")
+    if config.TRADING_CAPITAL <= 0:
+        raise ValueError(
+            "TRADING_CAPITAL .env me set karein. Risk engine har position "
+            "isi ke against size karta hai aur bina iske mana kar dega.")
     for b in _bots.values():
         if b.cfg.instrument_key == cfg.instrument_key and b.status == "running":
             raise ValueError(f"{b.symbol} par ek bot pehle se chal raha hai.")
@@ -212,13 +246,22 @@ async def _tick(state: BotState) -> None:
     signal = signals[-1]
     price = last["close"]
 
-    # Stop-loss / target on the open position, checked on close price.
-    if state.position_qty and (cfg.stop_loss_pct or cfg.target_pct):
-        ep = state.entry_price
-        if cfg.stop_loss_pct and price <= ep * (1 - cfg.stop_loss_pct / 100):
-            await _exit(state, f"stop-loss hit @ {price}")
-            return
-        if cfg.target_pct and price >= ep * (1 + cfg.target_pct / 100):
+    # Did the broker's stop fill while we were not looking? If so the
+    # position is gone and the bot must stop believing it holds one, or it
+    # will never take the next signal.
+    if state.position_qty and _stop_filled(state):
+        db.log_bot(state.run_id, "trade",
+                   "Broker ka stop fill ho gaya -- position band.")
+        state.position_qty = 0
+        state.entry_price = 0.0
+        state.entry_order_id = None
+        return
+
+    # The stop is a real order at the broker now, so there is nothing to
+    # check here for it. The target is not: no target order is placed, so
+    # it is still watched on the close price.
+    if state.position_qty and cfg.target_pct:
+        if price >= state.entry_price * (1 + cfg.target_pct / 100):
             await _exit(state, f"target hit @ {price}")
             return
 
@@ -241,46 +284,127 @@ async def _tick(state: BotState) -> None:
 
 
 async def _enter(state: BotState, price: float) -> None:
+    """Propose an entry. The risk engine decides whether, and how big.
+
+    `cfg.quantity` becomes a ceiling rather than the answer: a bot asking
+    for less than the engine allows is tightening, which is always
+    permitted, while asking for more is not.
+    """
+    from .. import decision
+    from ..execution import executor
+
     cfg = state.cfg
-    res = await trading.place_order(
-        instrument_key=cfg.instrument_key,
-        side="BUY",
-        quantity=cfg.quantity,
-        order_type="MARKET",
-        product=cfg.product,
-        tag=f"bot{state.run_id}",
-        source=f"bot:{cfg.strategy}",
-    )
-    state.position_qty = cfg.quantity
-    state.entry_price = float(res.get("price") or price)
+    stop = price * (1 - cfg.stop_loss_pct / 100)
+
+    signal = decision.Signal(
+        instrument_key=cfg.instrument_key, side="BUY",
+        source=f"bot:{cfg.strategy}", product=cfg.product,
+        stop_price=stop,
+        # What the bot is claiming about this trade. The target, when set,
+        # is the honest expected move; without one the stop distance is the
+        # only number available, and the edge test judges it on that.
+        expected_move_pct=cfg.target_pct or cfg.stop_loss_pct,
+        probability=0.55,
+        note=f"bot {state.run_id} {cfg.strategy}")
+
+    verdict = await decision.decide(signal)
+    if not verdict.approved:
+        state.last_rejection = "; ".join(verdict.reasons)[:300]
+        db.log_bot(state.run_id, "warn",
+                   f"Risk engine ne entry rok di: {state.last_rejection}")
+        return
+
+    quantity = min(verdict.quantity, cfg.quantity) if cfg.quantity else verdict.quantity
+    if quantity <= 0:
+        db.log_bot(state.run_id, "warn", "Approved quantity zero nikli.")
+        return
+    if quantity < verdict.quantity:
+        db.log_bot(state.run_id, "info",
+                   f"Risk engine ne {verdict.quantity} allow kiye, bot config "
+                   f"{cfg.quantity} par capped.")
+    verdict.quantity = quantity
+
+    try:
+        result = await executor.place_entry(
+            verdict, stop_price=stop, product=cfg.product,
+            source=f"bot:{cfg.strategy}:{state.run_id}")
+    except Exception as exc:                       # noqa: BLE001
+        state.last_rejection = str(exc)[:300]
+        db.log_bot(state.run_id, "error", f"Entry fail: {state.last_rejection}")
+        return
+
+    if result.get("duplicate"):
+        db.log_bot(state.run_id, "warn", "Ye order pehle se ja chuka hai.")
+        return
+
+    state.entry_order_id = result.get("tracked_id")
+    state.position_qty = quantity
+    state.entry_price = float((result.get("broker") or {}).get("price") or price)
     state.trades_today += 1
-    db.log_bot(state.run_id, "trade", f"BUY {cfg.quantity} @ {state.entry_price} -- {res.get('message')}")
+    state.last_rejection = None
+    db.log_bot(state.run_id, "trade",
+               f"BUY {quantity} @ {state.entry_price} "
+               f"(stop {round(stop, 2)}, sized by {verdict.sizing.get('bound_by')})")
 
 
 async def _exit(state: BotState, reason: str) -> None:
+    """Close the position through the executor, so it is tracked.
+
+    Exits are never blocked -- not by the kill switch, not by any limit.
+    Being unable to leave a position is worse than any condition that
+    would stop us entering one.
+    """
+    from ..execution import executor
+
     cfg = state.cfg
     qty = state.position_qty
     if not qty:
         return
-    res = await trading.place_order(
-        instrument_key=cfg.instrument_key,
-        side="SELL",
-        quantity=qty,
-        order_type="MARKET",
-        product=cfg.product,
-        tag=f"bot{state.run_id}",
-        source=f"bot:{cfg.strategy}",
-    )
-    exit_price = float(res.get("price") or 0)
+
+    try:
+        result = await executor.close_position(
+            cfg.instrument_key, qty, "BUY", role="exit", product=cfg.product,
+            source=f"bot:{cfg.strategy}:{state.run_id}",
+            parent_id=state.entry_order_id)
+    except Exception as exc:                       # noqa: BLE001
+        # A failed exit leaves a real position, so the bot must not forget
+        # that it is still holding one.
+        db.log_bot(state.run_id, "error",
+                   f"Exit fail ({reason}): {str(exc)[:200]} -- position abhi "
+                   f"bhi khuli hai.")
+        return
+
+    exit_price = float((result.get("broker") or {}).get("price") or 0)
     pnl = (exit_price - state.entry_price) * qty if exit_price else 0.0
     state.position_qty = 0
     state.entry_price = 0.0
+    state.entry_order_id = None
     state.trades_today += 1
     db.log_bot(
         state.run_id,
         "trade",
         f"SELL {qty} @ {exit_price} ({reason}) -- P&L approx {round(pnl, 2)}",
     )
+
+
+def _stop_filled(state: BotState) -> bool:
+    """Whether the protective stop for this entry has already filled.
+
+    Read from the order tracker rather than from the broker, because this
+    runs on every tick and must not wait on a network call. The execution
+    loop keeps the tracker current.
+    """
+    if not state.entry_order_id:
+        return False
+    try:
+        from ..execution import tracker
+
+        return any(child["role"] == "stop" and child["filled_quantity"] > 0
+                   for child in tracker.children(state.entry_order_id))
+    except Exception:                              # noqa: BLE001
+        # An unreadable tracker is not evidence the stop filled. Saying it
+        # did would make the bot re-enter while still holding a position.
+        return False
 
 
 def logs(run_id: int, limit: int = 200) -> list[dict]:

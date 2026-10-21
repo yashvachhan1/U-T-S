@@ -117,27 +117,39 @@ async def place_order(
     # ---------------- paper mode: record locally, touch nothing live ----
     if config.PAPER_TRADING:
         ratelimit.daily_orders.record()
+
+        # A stop waits for its trigger. Filling it on arrival -- which this
+        # used to do -- closed every position at the stop price the instant
+        # it opened, so every paper trade was a guaranteed loss and the
+        # whole forward test would have measured that instead of the
+        # strategy.
+        is_stop = req.order_type in ("SL", "SL-M")
+        status = "open" if is_stop else "complete"
+        trigger = float(built.payload.get("trigger_price") or req.trigger_price or 0)
+
         order_id = db.execute(
             """INSERT INTO paper_orders
                (created_at, instrument_key, symbol, side, quantity, price,
-                order_type, product, status, source, note)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                order_type, product, status, source, note, trigger_price)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 db.now(), instrument_key, symbol, built.payload["transaction_type"],
                 built.payload["quantity"], built.limit_price,
                 built.payload["order_type"], built.payload["product"],
-                "complete", source, built.tag,
+                status, source, built.tag, trigger,
             ),
         )
         return {
             "paper": True,
             "order_id": f"PAPER-{order_id}",
-            "status": "complete",
+            "status": status,
             "price": built.limit_price,
+            "trigger_price": trigger,
             "tag": built.tag,
             "converted_from": built.converted_from,
             "notes": built.notes,
-            "message": f"Paper order: {orders.describe(built)}",
+            "message": (f"Paper stop pending @ {trigger}" if is_stop
+                        else f"Paper order: {orders.describe(built)}"),
         }
 
     # ---------------- live mode -----------------------------------------
@@ -230,6 +242,52 @@ async def modify_order(
     return await client.put("/v2/order/modify", json_body=body)
 
 
+async def simulate_paper_fills() -> list[dict[str, Any]]:
+    """Fill paper stop orders whose trigger the market has reached.
+
+    Only paper mode. The real broker does this for us; without it a paper
+    stop would sit pending forever and a losing position would never be
+    cut, which flatters every paper result in the opposite direction from
+    the bug it replaced.
+
+    A triggered stop fills AT the trigger here. That is optimistic -- a
+    real stop fills at whatever the next available price is, often worse
+    on a gap -- and the slippage charged in the cost model is what stands
+    in for the difference.
+    """
+    if not config.PAPER_TRADING:
+        return []
+
+    pending = db.query(
+        "SELECT * FROM paper_orders WHERE status = 'open' AND trigger_price > 0")
+    if not pending:
+        return []
+
+    from ..engine import feed_service
+
+    filled = []
+    for row in pending:
+        price = feed_service.latest_price(row["instrument_key"])
+        if not price:
+            quote = await marketdata.ltp([row["instrument_key"]])
+            price = float((quote.get(row["instrument_key"]) or {}).get("ltp") or 0)
+        if not price:
+            continue
+
+        trigger = row["trigger_price"]
+        # A sell stop sits below the market and triggers on the way down;
+        # a buy stop sits above and triggers on the way up.
+        hit = price <= trigger if row["side"] == "SELL" else price >= trigger
+        if not hit:
+            continue
+
+        db.execute(
+            "UPDATE paper_orders SET status = 'complete', price = ? WHERE id = ?",
+            (trigger, row["id"]))
+        filled.append({**row, "status": "complete", "price": trigger})
+    return filled
+
+
 async def order_book() -> list[dict]:
     if config.PAPER_TRADING:
         rows = db.query("SELECT * FROM paper_orders ORDER BY id DESC LIMIT 200")
@@ -241,9 +299,11 @@ async def order_book() -> list[dict]:
                 "instrument_token": r["instrument_key"],
                 "transaction_type": r["side"],
                 "quantity": r["quantity"],
-                "filled_quantity": r["quantity"],
+                # A pending stop has filled nothing yet.
+                "filled_quantity": r["quantity"] if r["status"] == "complete" else 0,
                 "price": r["price"],
-                "average_price": r["price"],
+                "average_price": r["price"] if r["status"] == "complete" else 0,
+                "trigger_price": r["trigger_price"],
                 "order_type": r["order_type"],
                 "product": r["product"],
                 "status": r["status"],
