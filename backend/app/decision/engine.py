@@ -145,6 +145,11 @@ async def build_book(*, equity: float | None = None) -> Book:
         equity = config.TRADING_CAPITAL
     snap = risk_state.snapshot(positions, equity)
 
+    # The stance's restrictions travel with the book, so the risk engine
+    # sees them without having to reach into the agent layer itself.
+    stance = (synthesis.current() or {}).get("stance") or {}
+    has_stance = stance.get("stance") not in (None, "insufficient_data")
+
     return Book(
         equity=float(equity),
         positions=positions,
@@ -152,6 +157,12 @@ async def build_book(*, equity: float | None = None) -> Book:
         consecutive_losses=snap["consecutive_losses"],
         weekly_loss_pct=snap["weekly_loss_pct"],
         blackout_symbols=events.symbols_with_news(config.EVENT_BLACKOUT_MINUTES),
+        blocked_sectors=list(stance.get("blocked_sectors") or []),
+        allowed_sectors=list(stance.get("allowed_sectors") or []),
+        # Only when a stance was actually taken. Without one the schema
+        # default is 100%, which is not a decision anyone made.
+        stance_max_exposure_pct=(stance.get("max_exposure_pct")
+                                 if has_stance else None),
     )
 
 

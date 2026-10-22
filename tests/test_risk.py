@@ -777,3 +777,64 @@ def test_recording_the_halt_never_raises(clean_db, monkeypatch):
 
     monkeypatch.setattr(killswitch, "trip", explode)
     client._halt_on_dead_session({})      # must not raise
+
+
+# ==========================================================================
+# The stance has to actually restrain something
+# ==========================================================================
+def test_a_blocked_sector_stops_a_trade(clean_db):
+    """The Chief Strategist named it, the dashboard showed it, and the
+    risk engine used to ignore it -- so the next signal traded it anyway."""
+    book = good_book(blocked_sectors=["IT"])
+    decision = evaluate(good_proposal(sector="IT"), book, at=OPEN_TIME)
+    assert decision.approved is False
+    assert any("stance_blocked_sector" in r for r in decision.reasons)
+
+
+def test_a_sector_outside_the_allow_list_is_stopped(clean_db):
+    book = good_book(allowed_sectors=["PHARMA", "FMCG"])
+    decision = evaluate(good_proposal(sector="IT"), book, at=OPEN_TIME)
+    assert decision.approved is False
+    assert any("stance_allowed_sectors" in r for r in decision.reasons)
+
+
+def test_a_sector_inside_the_allow_list_passes(clean_db):
+    book = good_book(allowed_sectors=["IT", "PHARMA"])
+    assert evaluate(good_proposal(sector="IT"), book, at=OPEN_TIME).approved
+
+
+def test_no_stance_means_no_sector_restriction(clean_db):
+    """An absent stance is not a block. The system trades normally when
+    the agent layer has nothing to say."""
+    assert evaluate(good_proposal(sector="IT"), good_book(),
+                    at=OPEN_TIME).approved is True
+
+
+def test_blocked_beats_allowed_in_the_engine_too(clean_db):
+    """Same rule as the schema: a sector in both lists is blocked."""
+    book = good_book(allowed_sectors=["IT"], blocked_sectors=["IT"])
+    decision = evaluate(good_proposal(sector="IT"), book, at=OPEN_TIME)
+    assert decision.approved is False
+
+
+def test_the_stance_exposure_cap_can_only_tighten(clean_db):
+    """A stance asking for more than the config allows gets the config."""
+    held = positions(3, sector="AUTO", industry="AUTO", value=200_000)  # 60%
+    loose = good_book(positions=held, stance_max_exposure_pct=100.0)
+    tight = good_book(positions=held, stance_max_exposure_pct=50.0)
+
+    assert evaluate(good_proposal(), loose, at=OPEN_TIME).approved is True
+    blocked = evaluate(good_proposal(), tight, at=OPEN_TIME)
+    assert blocked.approved is False
+    assert any("stance_exposure_cap" in r for r in blocked.reasons)
+
+
+def test_the_stance_cap_also_shrinks_the_size(clean_db):
+    """Not just the gate -- the room left under the tighter cap is what
+    sizing is allowed to fill."""
+    held = positions(1, sector="AUTO", industry="AUTO", value=100_000)  # 10%
+    roomy = evaluate(good_proposal(), good_book(positions=held), at=OPEN_TIME)
+    pinched = evaluate(good_proposal(),
+                       good_book(positions=held, stance_max_exposure_pct=11.0),
+                       at=OPEN_TIME)
+    assert pinched.quantity < roomy.quantity

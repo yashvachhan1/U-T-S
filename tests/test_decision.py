@@ -366,3 +366,46 @@ def test_an_order_goes_through_normally_when_nothing_is_tripped(
     out = run(trading.place_order(instrument_key=INFY, side="BUY", quantity=1,
                                   order_type="LIMIT", price=1500.0))
     assert out["status"] == "complete"
+
+
+# --------------------------------------------------------------------------
+# The stance reaches the book
+# --------------------------------------------------------------------------
+def test_the_book_carries_the_stance_restrictions(clean_db, no_positions):
+    """The risk engine should not have to reach into the agent layer, so
+    the restrictions travel with the book instead."""
+    from app.agents.schemas import StoredOutput
+    from app.clock import now_ist
+    from app.store import agent_outputs
+
+    agent_outputs.save(StoredOutput(
+        agent="chief_strategist", ts=now_ist(),
+        payload={"view": "neutral", "confidence": 0.5, "stance": "risk_off",
+                 "blocked_sectors": ["OMC"], "allowed_sectors": ["IT"],
+                 "max_exposure_pct": 40.0, "analysts_used": 6}))
+
+    book = run(decision.build_book(equity=1_000_000))
+    assert book.blocked_sectors == ["OMC"]
+    assert book.allowed_sectors == ["IT"]
+    assert book.stance_max_exposure_pct == 40.0
+
+
+def test_no_stance_leaves_the_exposure_cap_unset(clean_db, no_positions):
+    """Without a stance the schema default is 100%, which is not a
+    decision anyone made -- so it must not arrive looking like one."""
+    book = run(decision.build_book(equity=1_000_000))
+    assert book.stance_max_exposure_pct is None
+    assert book.blocked_sectors == []
+
+
+def test_an_insufficient_data_stance_sets_no_cap(clean_db, no_positions):
+    from app.agents.schemas import StoredOutput
+    from app.clock import now_ist
+    from app.store import agent_outputs
+
+    agent_outputs.save(StoredOutput(
+        agent="chief_strategist", ts=now_ist(),
+        payload={"view": "neutral", "stance": "insufficient_data",
+                 "max_exposure_pct": 100.0}))
+    book = run(decision.build_book(equity=1_000_000))
+    assert book.stance_max_exposure_pct is None

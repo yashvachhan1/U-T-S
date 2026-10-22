@@ -43,6 +43,17 @@ async def lifespan(app: FastAPI):
     mode = "PAPER (safe)" if config.PAPER_TRADING else "*** LIVE -- REAL MONEY ***"
     print(f"[startup] Trading mode: {mode}")
 
+    # Collectors need no broker login -- crypto, FRED, news, global markets
+    # and power data are all external -- so they start with the app. They
+    # used to wait for someone to call an endpoint, which meant an
+    # unattended run gathered no news, no macro and no crypto while every
+    # agent reported itself healthy.
+    try:
+        started = await collectors.runner.start()
+        print(f"[startup] Collectors running: {', '.join(started)}")
+    except Exception as exc:                      # noqa: BLE001
+        print(f"[startup] Collectors failed to start: {exc}")
+
     # Register what the agents need now, before the socket exists. The feed
     # replays its subscriptions on connect, so doing this here means the
     # agents have data from the first frame rather than from whenever

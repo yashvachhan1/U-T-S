@@ -811,6 +811,43 @@ audit log, execution aur reconciliation — 562 test pass, killswitch drill
 
 ---
 
+## Audit — "declare hai par chalta nahi"
+
+Scanner aur agent scheduler, dono ka gap ek hi shakl ka tha: cheez likhi
+hui, configure ki hui, documented — aur usko chalane wala koi nahi. Isliye
+poora codebase scan kiya gaya ki aur kahan yahi hua hai.
+
+### Theek kar diye
+
+| Gap | Asar |
+|---|---|
+| **Collectors kabhi apne aap start nahi hote the** | Sirf API call se chalte the. Unattended run me **koi news, koi macro, koi crypto data nahi** — aur aadhe agents andhe, phir bhi "healthy" dikhte. Ab app ke saath start hote hain (kisi ko broker login nahi chahiye). |
+| **Chief Strategist ka sector block ignore hota tha** | Stance `blocked_sectors` aur `max_exposure_pct` compute karta, dashboard dikhata, aur **risk engine poochta hi nahi tha**. Agent sector block karta aur system agle signal par wahi trade kar leta. Ab Book ke saath travel karte hain; dono one-way hain (blocked beats allowed, cap sirf tight karta hai). |
+| **Session expire par kuch nahi hota tha** | `session_expired` trigger define tha, koi fire nahi karta tha. Ab 401 par halt. |
+| **Candle lookback cap galat tha** | 365 din maangta tha, Upstox 30 deta hai — har call `UDAPI1148` se fail. |
+| **Paper mode stop ko stop nahi manta tha** | Protective stop lagte hi position usi pal band. **Har paper trade guaranteed loss.** |
+
+### Mile hain, abhi nahi kiye
+
+Ye asli hain, par paper run ko todte nahi — isliye likh kar rakhe hain,
+chhupaye nahi:
+
+| Gap | Kyun abhi nahi |
+|---|---|
+| **ML model kahin use nahi hota** | Phase 4 me bana, kisi ne connect nahi kiya. Scanner `probability` hardcode karta hai. Ye **strategy** ka kaam hai, aur strategy baad ke liye tali gayi hai. |
+| **Feature engine ka output koi nahi padhta** | Har tick par 23 features compute hote hain, sirf `status()` padha jaata hai. Inhe padhne wala ML model hi hona tha — upar wali line dekhein. |
+| **Tick Parquet likhte hain, padhte nahi** | `read_day()` / `available_days()` ko koi call nahi karta. Data jama ho raha hai aage ke liye; abhi reader nahi hai. |
+| **`btst_cap` kabhi call nahi hota** | Pehle hi likha hai ki default config par ye lagbhag kabhi bind nahi karta. Overnight ki asli rok position cap hai. |
+| **`agent_outputs` kabhi purge nahi hota** | `purge_before()` define hai, koi call nahi karta. Do mahine me ~36,000 rows — bada nahi, par unbounded. |
+| **`config_unsafe` switch kabhi fire nahi hota** | Bekaar nahi hua: `main.py` unsafe config par start hi nahi hota, to switch tak baat pahunchti hi nahi. |
+
+> Sabak jo teen baar mila: **code sahi hona kaafi nahi hai.** Wo chalta hai
+> ya nahi, ye alag sawaal hai — aur jab nahi chalta tab kuch toot-ta nahi,
+> bas kuch hota nahi. Isliye ab har nayi cheez ke saath ye poochha jaata
+> hai: *ise chalata kaun hai?*
+
+---
+
 ## Phase 7 — Paper forward-test · 🟡 setup ✅, ab 2–3 mahine chalana hai
 
 > **Ye skip karne ka mann karega. Mat karna.**

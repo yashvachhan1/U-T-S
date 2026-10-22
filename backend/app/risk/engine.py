@@ -100,6 +100,14 @@ class Book:
     weekly_loss_pct: float = 0.0
     blackout_symbols: list[str] = field(default_factory=list)
 
+    # From the Chief Strategist's current stance. Both are one-way: a
+    # blocked sector cannot be unblocked here, and the exposure cap only
+    # ever tightens the configured one. Empty means "no stance", which is
+    # not the same as "no restriction" only for the cap -- see below.
+    blocked_sectors: list[str] = field(default_factory=list)
+    allowed_sectors: list[str] = field(default_factory=list)
+    stance_max_exposure_pct: float | None = None
+
     @property
     def exposure_pct(self) -> float:
         if self.equity <= 0:
@@ -171,6 +179,33 @@ def portfolio_checks(proposal: Proposal, book: Book) -> list[checks.Check]:
     else:
         out.append(checks.ok("trades_today", f"{book.trades_today} today"))
 
+    # The stance's sector lists. Checked here rather than left to the
+    # dashboard: an agent that blocks a sector and is then ignored is
+    # worse than one that was never asked.
+    sector = (proposal.sector or "").upper()
+    if sector and sector in {s.upper() for s in book.blocked_sectors}:
+        out.append(checks.fail(
+            "stance_blocked_sector",
+            f"Chief Strategist ne {sector} block kiya hai"))
+    elif book.allowed_sectors and sector and sector not in {
+            s.upper() for s in book.allowed_sectors}:
+        out.append(checks.fail(
+            "stance_allowed_sectors",
+            f"stance sirf {', '.join(book.allowed_sectors)} allow kar raha "
+            f"hai, {sector} nahi"))
+    else:
+        out.append(checks.ok("stance_sectors"))
+
+    # The stance's exposure ceiling, applied as the tighter of the two.
+    if book.stance_max_exposure_pct is not None:
+        cap = min(config.MAX_TOTAL_EXPOSURE_PCT, book.stance_max_exposure_pct)
+        if book.exposure_pct >= cap:
+            out.append(checks.fail(
+                "stance_exposure_cap",
+                f"{book.exposure_pct:.1f}% invested, stance ka cap {cap:.0f}%"))
+        else:
+            out.append(checks.ok("stance_exposure_cap", f"cap {cap:.0f}%"))
+
     if book.holds(proposal.instrument_key):
         out.append(checks.fail(
             "already_held",
@@ -236,7 +271,11 @@ def evaluate(proposal: Proposal, book: Book, at=None) -> Decision:
     agent_mult = max(0.0, min(1.0, proposal.agent_multiplier))
     combined = agent_mult * defensive
 
-    room = max(0.0, config.MAX_TOTAL_EXPOSURE_PCT - book.exposure_pct)
+    # Room left under the tighter of the configured and stance caps.
+    exposure_cap = config.MAX_TOTAL_EXPOSURE_PCT
+    if book.stance_max_exposure_pct is not None:
+        exposure_cap = min(exposure_cap, book.stance_max_exposure_pct)
+    room = max(0.0, exposure_cap - book.exposure_pct)
     result = sizing.size(
         entry_price=proposal.entry_price,
         stop_price=proposal.stop_price,
